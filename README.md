@@ -1,6 +1,6 @@
 # Txoko · Inventario local
 
-Aplicación web de inventario, consumos, deudas e historial compartido. El servidor y la base de datos se ejecutan localmente con Python y SQLite. No usa Firebase, Google Login, reCAPTCHA, Cloud Functions ni dependencias de Python externas.
+Aplicación web de inventario, consumos, deudas, bote e historial compartido. El servidor y la base de datos se ejecutan localmente con Python y SQLite. No usa Firebase, Google Login, reCAPTCHA, Cloud Functions ni dependencias de Python externas.
 
 ## 1. Probar en el ordenador
 
@@ -90,6 +90,10 @@ python3 server.py --reset-setup-token
 No compartas ese token: quien lo use primero será presidente.
 
 Los invitados pueden consumir sin crear una cuenta. La primera vez ponen nombre y apellidos; después pueden seleccionarse en una lista. Tal como se eligió, no se pide PIN a invitados, así que alguien podría consultar o avisar una deuda usando el nombre de otra persona. El presidente debe verificar cualquier pago en persona antes de confirmarlo. Invitados con el mismo nombre y apellidos comparten su historial.
+
+## Bote y gastos del Txoko
+
+El bote suma únicamente los consumos cuyo pago haya confirmado el presidente; las deudas y los avisos de pago pendientes no se consideran dinero ingresado. En la pestaña **Bote**, cualquier miembro con cuenta activa puede registrar una compra indicando concepto e importe. La solicitud queda pendiente y no resta saldo hasta que el presidente la apruebe. Al aprobarla, el gasto queda asociado al solicitante y al presidente que lo revisó y se descuenta del saldo disponible. El servidor impide aprobar un gasto si el bote no tiene fondos suficientes. El presidente también puede rechazar una solicitud; el historial y el estado de cada solicitud quedan visibles para los miembros con sesión iniciada.
 
 ## Pruebas automáticas
 

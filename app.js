@@ -122,6 +122,12 @@ function setUser(user) {
   $("#members-tab").hidden = user?.role !== "president";
   $("#product-form").hidden = user?.role !== "president";
   $("#guest-debt-form").hidden = Boolean(user);
+  $("#expense-form").hidden = !user || user.role === "former_member";
+  $("#expenses-login-hint").hidden = Boolean(user);
+  if (!user) {
+    $("#expenses-list").replaceChildren();
+    $("#expenses-empty").hidden = true;
+  }
   appContent.hidden = false;
   refreshData();
 }
@@ -137,7 +143,10 @@ async function refreshData() {
     renderProducts();
     $("#funds-total").textContent = formatMoney(ledger.totalSalesCents);
     $("#funds-detail").textContent = `Pendiente: ${formatMoney(ledger.pendingCents)} · Cobrado: ${formatMoney(ledger.collectedCents)}`;
+    $("#pot-balance").textContent = formatMoney(ledger.potBalanceCents);
+    $("#pot-detail").textContent = `Ingresos confirmados: ${formatMoney(ledger.collectedCents)} · Gastos aprobados: ${formatMoney(ledger.approvedExpensesCents)}`;
     renderDebts(debtResult.debts);
+    if (currentUser && !$("#pot-section").hidden) await loadExpenses();
     if (currentUser?.role === "president" && !$("#members-section").hidden) await loadMembers();
   } catch (error) {
     showNotice(`No se pudieron actualizar los datos: ${displayError(error)}`, true);
@@ -222,6 +231,75 @@ function createDebtCard(debt, guest = false) {
   }
   card.append(info, actions);
   return card;
+}
+
+async function loadExpenses() {
+  try {
+    const result = await api("/api/expenses");
+    renderExpenses(result.expenses);
+  } catch (error) {
+    showNotice(`No se pudieron cargar las compras: ${displayError(error)}`, true);
+  }
+}
+
+function renderExpenses(expenses) {
+  const list = $("#expenses-list");
+  list.replaceChildren();
+  $("#expenses-empty").hidden = expenses.length > 0;
+  expenses.forEach((expense) => {
+    const card = document.createElement("article");
+    card.className = "expense-card";
+    const info = document.createElement("div");
+    info.className = "expense-info";
+    const created = new Date(expense.createdAt * 1000).toLocaleString("es-ES");
+    info.append(
+      safeText("h3", "", expense.description),
+      safeText("p", "debt-description", `${formatMoney(expense.amountCents)} · Solicitado por ${expense.requesterName} · ${created}`),
+    );
+    const actions = document.createElement("div");
+    actions.className = "expense-actions";
+    actions.append(safeText("strong", "debt-amount", formatMoney(expense.amountCents)));
+    if (expense.status === "pending") {
+      if (currentUser?.role === "president") {
+        const approve = safeText("button", "button button-primary", "Aprobar");
+        approve.type = "button";
+        approve.addEventListener("click", () => reviewExpense(expense, true));
+        const reject = safeText("button", "button button-danger", "Rechazar");
+        reject.type = "button";
+        reject.addEventListener("click", () => reviewExpense(expense, false));
+        actions.append(approve, reject);
+      } else {
+        actions.append(safeText("span", "status-badge is-pending", "Pendiente de revisión"));
+      }
+    } else {
+      const status = expense.status === "approved" ? "Aprobado" : "Rechazado";
+      actions.append(safeText(
+        "span",
+        `status-badge ${expense.status === "approved" ? "is-approved" : "is-rejected"}`,
+        status,
+      ));
+      if (expense.reviewerName) {
+        info.append(safeText("p", "expense-review", `${status} por ${expense.reviewerName} · ${new Date(expense.reviewedAt * 1000).toLocaleString("es-ES")}`));
+      }
+    }
+    card.append(info, actions);
+    list.append(card);
+  });
+}
+
+async function reviewExpense(expense, approved) {
+  const action = approved ? "aprobar" : "rechazar";
+  if (!window.confirm(`¿Quieres ${action} "${expense.description}" por ${formatMoney(expense.amountCents)}?`)) return;
+  try {
+    await api(approved ? "/api/approve-expense" : "/api/reject-expense", {
+      method: "POST",
+      body: { expenseId: expense.id },
+    });
+    showNotice(approved ? "Compra aprobada y descontada del bote." : "Compra rechazada.");
+    await refreshData();
+  } catch (error) {
+    showNotice(`No se pudo ${action} la compra: ${displayError(error)}`, true);
+  }
 }
 
 async function loadMembers() {
@@ -474,10 +552,38 @@ function setupEvents() {
     }
   });
 
+  $("#expense-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const amountCents = centsFromPrice(form.get("amount"));
+    const description = String(form.get("description")).trim();
+    if (!description || amountCents === null) {
+      showNotice("Comprueba la descripción y el importe de la compra.", true);
+      return;
+    }
+    const button = formElement.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await api("/api/expenses", {
+        method: "POST",
+        body: { description, amountCents },
+      });
+      formElement.reset();
+      showNotice("Compra enviada al presidente para su revisión.");
+      await refreshData();
+    } catch (error) {
+      showNotice(`No se pudo registrar la compra: ${displayError(error)}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.addEventListener("click", () => {
       showTab(button.dataset.tab);
       if (button.dataset.tab === "members" && currentUser?.role === "president") loadMembers();
+      if (button.dataset.tab === "pot" && currentUser) loadExpenses();
     });
   });
 

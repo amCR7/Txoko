@@ -4,10 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111827">
-    <meta name="description" content="Inventario y archivo multimedia de Txoko.">
+    <meta name="description" content="Inventario, cuentas, bote y archivo multimedia de Txoko.">
     <title>Txoko · Inventario</title>
     <link rel="stylesheet" href="styles.css">
-    <script type="module" src="app.js?v=sqlite"></script>
+    <script type="module" src="app.js?v=pot"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -63,6 +63,7 @@
         <nav class="tabs" aria-label="Secciones">
           <button class="tab-button is-active" type="button" data-tab="inventory" aria-selected="true">Inventario</button>
           <button class="tab-button" type="button" data-tab="debts" aria-selected="false">Deudas</button>
+          <button class="tab-button" type="button" data-tab="pot" aria-selected="false">Bote</button>
           <button class="tab-button" type="button" data-tab="media" aria-selected="false">Archivo multimedia</button>
           <button id="members-tab" class="tab-button" type="button" data-tab="members" aria-selected="false" hidden>Miembros</button>
         </nav>
@@ -116,6 +117,42 @@
             <h3>No tienes deudas pendientes</h3>
             <p>Los consumos por pagar aparecerán aquí.</p>
           </div>
+        </section>
+
+        <section id="pot-section" class="tab-panel" aria-labelledby="pot-title" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CUENTAS DEL TXOKO</p>
+              <h2 id="pot-title">Bote</h2>
+            </div>
+            <div class="fund-summary pot-balance">
+              <span>Disponible para compras</span>
+              <strong id="pot-balance">0,00&nbsp;€</strong>
+              <small id="pot-detail">Ingresos confirmados: 0,00&nbsp;€ · Gastos aprobados: 0,00&nbsp;€</small>
+            </div>
+          </div>
+
+          <form id="expense-form" class="expense-form" hidden>
+            <h3>Registrar compra para el Txoko</h3>
+            <p>Indica qué compraste y cuánto costó. El importe no se descontará del bote hasta que el presidente revise y apruebe el gasto.</p>
+            <label>Compra o gasto<input name="description" placeholder="Bolsas de basura" required maxlength="160"></label>
+            <label>Importe (€)<input name="amount" type="number" min="0.01" step="0.01" placeholder="4,50" required></label>
+            <button class="button button-primary" type="submit">Enviar para revisión</button>
+          </form>
+
+          <div class="expense-heading">
+            <div>
+              <p class="eyebrow">HISTORIAL</p>
+              <h3>Compras y gastos</h3>
+            </div>
+          </div>
+          <div id="expenses-list" class="expense-list"></div>
+          <div id="expenses-empty" class="empty-state compact" hidden>
+            <div class="empty-symbol" aria-hidden="true">✳</div>
+            <h3>Aún no hay compras registradas</h3>
+            <p>Los gastos enviados aparecerán aquí para su revisión.</p>
+          </div>
+          <p id="expenses-login-hint" class="section-help" hidden>Inicia sesión para registrar compras o consultar su historial.</p>
         </section>
 
         <section id="members-section" class="tab-panel" aria-labelledby="members-title" hidden>

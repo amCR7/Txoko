@@ -75,7 +75,7 @@ def guest_key(first_name: str, last_name: str) -> str:
 
 
 def money_summary(connection: sqlite3.Connection) -> dict[str, int]:
-    row = connection.execute(
+    income = connection.execute(
         """
         SELECT
           COALESCE(SUM(amount_cents), 0) AS total,
@@ -86,10 +86,21 @@ def money_summary(connection: sqlite3.Connection) -> dict[str, int]:
         FROM transactions
         """
     ).fetchone()
+    expenses = connection.execute(
+        """
+        SELECT
+          COALESCE(SUM(CASE WHEN status = 'approved' THEN amount_cents ELSE 0 END), 0) AS approved,
+          COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_cents ELSE 0 END), 0) AS pending
+        FROM expenses
+        """
+    ).fetchone()
     return {
-        "totalSalesCents": row["total"],
-        "pendingCents": row["pending"],
-        "collectedCents": row["collected"],
+        "totalSalesCents": income["total"],
+        "pendingCents": income["pending"],
+        "collectedCents": income["collected"],
+        "approvedExpensesCents": expenses["approved"],
+        "pendingExpensesCents": expenses["pending"],
+        "potBalanceCents": income["collected"] - expenses["approved"],
     }
 
 
@@ -216,6 +227,22 @@ class TxokoStore:
                   paid_at INTEGER,
                   confirmed_by TEXT
                 );
+                CREATE TABLE IF NOT EXISTS expenses (
+                  id TEXT PRIMARY KEY,
+                  description TEXT NOT NULL,
+                  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+                  requester_id TEXT NOT NULL,
+                  requester_name TEXT NOT NULL,
+                  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+                  created_at INTEGER NOT NULL,
+                  reviewed_by TEXT,
+                  reviewer_name TEXT,
+                  reviewed_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS expenses_status_created
+                  ON expenses(status, created_at);
+                CREATE INDEX IF NOT EXISTS expenses_requester_created
+                  ON expenses(requester_id, created_at);
                 CREATE INDEX IF NOT EXISTS transactions_member_debts
                   ON transactions(consumer_uid, status, created_at);
                 CREATE INDEX IF NOT EXISTS transactions_guest_debts
@@ -640,6 +667,92 @@ class TxokoStore:
             ).fetchall()
         return [public_user(row) for row in rows]
 
+    @staticmethod
+    def public_expense(row: sqlite3.Row) -> dict[str, Any]:
+        result = {
+            "id": row["id"],
+            "description": row["description"],
+            "amountCents": row["amount_cents"],
+            "requesterId": row["requester_id"],
+            "requesterName": row["requester_name"],
+            "status": row["status"],
+            "createdAt": row["created_at"],
+            "reviewerId": row["reviewed_by"],
+            "reviewerName": row["reviewer_name"],
+            "reviewedAt": row["reviewed_at"],
+        }
+        return result
+
+    def list_expenses(self, user: sqlite3.Row | None) -> list[dict[str, Any]]:
+        if user is None or not user["active"]:
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión para consultar los gastos del Txoko.")
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM expenses ORDER BY created_at DESC"
+            ).fetchall()
+        return [self.public_expense(row) for row in rows]
+
+    def create_expense(self, user: sqlite3.Row | None, payload: dict[str, Any]) -> dict[str, Any]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión con una cuenta activa para registrar un gasto.")
+        description = clean_name(payload.get("description"), "Descripción de la compra", 160)
+        amount_cents = payload.get("amountCents")
+        if type(amount_cents) is not int or not 1 <= amount_cents <= 100_000_000:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "El importe debe ser mayor que cero y no superar 1.000.000 €.")
+
+        expense_id = secrets.token_hex(16)
+        created_at = utc_now()
+        requester_name = f"{user['first_name']} {user['last_name']}"
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO expenses(
+                  id, description, amount_cents, requester_id, requester_name, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                (expense_id, description, amount_cents, user["id"], requester_name, created_at),
+            )
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)).fetchone()
+        return self.public_expense(row)
+
+    def review_expense(self, user: sqlite3.Row | None, expense_id: Any, approved: bool) -> None:
+        self.require_president(user)
+        if not isinstance(expense_id, str) or not re.fullmatch(r"[a-f0-9]{32}", expense_id):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "El gasto no es válido.")
+
+        reviewed_at = utc_now()
+        status = "approved" if approved else "rejected"
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            expense = connection.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)).fetchone()
+            if expense is None:
+                raise ApiError(HTTPStatus.NOT_FOUND, "No se encuentra ese gasto.")
+            if expense["status"] != "pending":
+                raise ApiError(HTTPStatus.CONFLICT, "Este gasto ya ha sido revisado.")
+            if approved:
+                balance = money_summary(connection)["potBalanceCents"]
+                if expense["amount_cents"] > balance:
+                    raise ApiError(
+                        HTTPStatus.CONFLICT,
+                        f"El bote disponible ({balance / 100:.2f} €) no cubre este gasto.",
+                    )
+            connection.execute(
+                """
+                UPDATE expenses
+                SET status = ?, reviewed_by = ?, reviewer_name = ?, reviewed_at = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (
+                    status,
+                    user["id"],
+                    f"{user['first_name']} {user['last_name']}",
+                    reviewed_at,
+                    expense_id,
+                ),
+            )
+            connection.commit()
+
     def deactivate_member(self, user: sqlite3.Row, member_id: str) -> None:
         self.require_president(user)
         with self.connect() as connection:
@@ -777,6 +890,8 @@ class TxokoHandler(SimpleHTTPRequestHandler):
                 self._send_json({"debts": self.store.guest_debts(query.get("guestId", [""])[0])})
             elif parsed.path == "/api/members":
                 self._send_json({"members": self.store.list_members(self._user(required=True))})
+            elif parsed.path == "/api/expenses":
+                self._send_json({"expenses": self.store.list_expenses(self._user(required=True))})
             else:
                 raise ApiError(HTTPStatus.NOT_FOUND, "Ruta no encontrada.")
         except Exception as error:
@@ -833,6 +948,15 @@ class TxokoHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": True})
             elif parsed.path == "/api/deactivate-member":
                 self.store.deactivate_member(self._user(required=True), payload.get("userId", ""))
+                self._send_json({"ok": True})
+            elif parsed.path == "/api/expenses":
+                expense = self.store.create_expense(self._user(required=True), payload)
+                self._send_json({"expense": expense}, HTTPStatus.CREATED)
+            elif parsed.path == "/api/approve-expense":
+                self.store.review_expense(self._user(required=True), payload.get("expenseId"), approved=True)
+                self._send_json({"ok": True})
+            elif parsed.path == "/api/reject-expense":
+                self.store.review_expense(self._user(required=True), payload.get("expenseId"), approved=False)
                 self._send_json({"ok": True})
             else:
                 raise ApiError(HTTPStatus.NOT_FOUND, "Ruta no encontrada.")

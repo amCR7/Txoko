@@ -224,6 +224,128 @@ class LocalApiTest(unittest.TestCase):
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["amountCents"], 75)
 
+    def test_pot_only_counts_confirmed_income_and_presidentially_approved_expenses(self):
+        _, president_opener = self.register("presidente", self.setup_token)
+        member, member_opener = self.register("socio")
+        product = self.request(
+            "/api/products",
+            "POST",
+            {"name": "Coca-Cola", "stock": 1, "priceCents": 150},
+            president_opener,
+        )[1]["product"]
+        _, consumption = self.request(
+            "/api/consume",
+            "POST",
+            {"productId": product["id"]},
+            member_opener,
+        )
+        transaction_id = consumption["transactionId"]
+        self.request(
+            "/api/request-payment",
+            "POST",
+            {"transactionId": transaction_id},
+            member_opener,
+        )
+        self.assertEqual(self.request("/api/ledger")[1]["potBalanceCents"], 0)
+        self.request(
+            "/api/confirm-payment",
+            "POST",
+            {"transactionId": transaction_id},
+            president_opener,
+        )
+        self.assertEqual(self.request("/api/ledger")[1]["potBalanceCents"], 150)
+
+        status, result = self.request(
+            "/api/expenses",
+            "POST",
+            {"description": "Bolsas de basura", "amountCents": 90},
+            member_opener,
+        )
+        self.assertEqual(status, 201, result)
+        expense_id = result["expense"]["id"]
+        self.assertEqual(result["expense"]["requesterId"], member["id"])
+        ledger = self.request("/api/ledger")[1]
+        self.assertEqual(ledger["potBalanceCents"], 150)
+        self.assertEqual(ledger["pendingExpensesCents"], 90)
+        expenses = self.request("/api/expenses", opener=president_opener)[1]["expenses"]
+        self.assertEqual(expenses[0]["status"], "pending")
+
+        status, _ = self.request(
+            "/api/approve-expense",
+            "POST",
+            {"expenseId": expense_id},
+            member_opener,
+        )
+        self.assertEqual(status, 403)
+        status, _ = self.request(
+            "/api/approve-expense",
+            "POST",
+            {"expenseId": expense_id},
+            president_opener,
+        )
+        self.assertEqual(status, 200)
+        ledger = self.request("/api/ledger")[1]
+        self.assertEqual(ledger["approvedExpensesCents"], 90)
+        self.assertEqual(ledger["potBalanceCents"], 60)
+        approved = self.request("/api/expenses", opener=member_opener)[1]["expenses"][0]
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(approved["reviewerName"], "Presidente Txoko")
+
+        _, overspend = self.request(
+            "/api/expenses",
+            "POST",
+            {"description": "Compra demasiado cara", "amountCents": 61},
+            member_opener,
+        )
+        status, error = self.request(
+            "/api/approve-expense",
+            "POST",
+            {"expenseId": overspend["expense"]["id"]},
+            president_opener,
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("bote disponible", error["error"])
+        self.assertEqual(self.request("/api/ledger")[1]["potBalanceCents"], 60)
+        still_pending = next(
+            expense
+            for expense in self.request("/api/expenses", opener=president_opener)[1]["expenses"]
+            if expense["id"] == overspend["expense"]["id"]
+        )
+        self.assertEqual(still_pending["status"], "pending")
+
+    def test_expense_api_requires_active_members_and_president_review_is_single_use(self):
+        _, president_opener = self.register("presidente", self.setup_token)
+        member, member_opener = self.register("socio")
+        status, _ = self.request("/api/expenses")
+        self.assertEqual(status, 401)
+
+        status, expense = self.request(
+            "/api/expenses",
+            "POST",
+            {"description": "Agua para el Txoko", "amountCents": 125},
+            member_opener,
+        )
+        self.assertEqual(status, 201)
+        expense_id = expense["expense"]["id"]
+        status, _ = self.request(
+            "/api/reject-expense",
+            "POST",
+            {"expenseId": expense_id},
+            president_opener,
+        )
+        self.assertEqual(status, 200)
+        status, _ = self.request(
+            "/api/reject-expense",
+            "POST",
+            {"expenseId": expense_id},
+            president_opener,
+        )
+        self.assertEqual(status, 409)
+        rejected = self.request("/api/expenses", opener=member_opener)[1]["expenses"][0]
+        self.assertEqual(rejected["status"], "rejected")
+        self.assertEqual(rejected["reviewerName"], "Presidente Txoko")
+        self.assertEqual(self.request("/api/ledger")[1]["potBalanceCents"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

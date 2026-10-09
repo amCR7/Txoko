@@ -83,8 +83,23 @@ input::placeholder { color: #777a84; }
 .product-form { display: grid; grid-template-columns: 1.4fr .7fr 1fr auto; align-items: end; gap: 11px; margin-bottom: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .product-form h3 { grid-column: 1 / -1; margin: 0; font-size: 13px; }
 .product-list, .debt-list, .member-list { display: grid; gap: 10px; }
+.expense-list { display: grid; gap: 10px; }
 .product-card, .debt-card, .member-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.expense-card { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
 .product-name, .debt-info h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.expense-info { min-width: 0; }
+.expense-info h3, .expense-heading h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.expense-review { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.expense-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+.expense-actions .button { min-height: 34px; padding: 0 10px; font-size: 10px; }
+.expense-heading { margin: 25px 0 12px; }
+.expense-heading .eyebrow { margin-bottom: 5px; }
+.pot-balance { min-width: 240px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.pot-balance strong { font-size: 24px; }
+.expense-form { display: grid; grid-template-columns: 1fr minmax(130px, .35fr) auto; align-items: end; gap: 11px; margin-bottom: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.expense-form h3, .expense-form p { grid-column: 1 / -1; margin: 0; }
+.expense-form h3 { font-size: 13px; }
+.expense-form p { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .product-price, .debt-description, .member-email { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
 .product-actions, .debt-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
 .product-actions .button, .debt-actions .button { min-height: 34px; padding: 0 10px; font-size: 10px; }
@@ -96,6 +111,8 @@ input::placeholder { color: #777a84; }
 .debt-amount { font-size: 13px; }
 .status-badge { font-size: 10px; }
 .status-badge.is-pending { color: #f0c979; }
+.status-badge.is-approved { color: var(--accent); }
+.status-badge.is-rejected { color: var(--danger); }
 .section-help, .muted-copy { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .member-row strong { display: block; font-size: 13px; }
 
@@ -172,8 +189,12 @@ input::placeholder { color: #777a84; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   .fund-summary { justify-items: start; text-align: left; }
   .debt-card, .member-row { flex-direction: column; }
+  .expense-card { align-items: flex-start; flex-direction: column; }
   .debt-actions { justify-content: flex-start; }
+  .expense-actions { justify-content: flex-start; }
   .member-row .button { width: 100%; }
+  .expense-form { grid-template-columns: 1fr; }
+  .expense-form h3, .expense-form p { grid-column: auto; }
   .upload-panel { align-items: flex-start; flex-wrap: wrap; }
   .upload-copy { flex: 1 1 calc(100% - 60px); }
   .file-picker { width: 100%; }
