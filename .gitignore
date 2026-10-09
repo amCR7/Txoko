@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+.firebase/
+*.sqlite3
+.env
+.env.*

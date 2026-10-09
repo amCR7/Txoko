@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111827">
+    <meta name="description" content="Inventario y archivo multimedia de Txoko.">
+    <title>Txoko · Inventario</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="app.js?v=sqlite"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Txoko, inicio">
+          <span class="brand-mark" aria-hidden="true">T</span>
+          <span>txoko<span class="brand-dot">.</span></span>
+        </a>
+        <div id="account-area" class="account-area">
+          <span id="account-label" class="local-label">Modo invitado</span>
+          <button id="sign-in-button" class="button button-primary" type="button">Acceder / registrarse</button>
+          <button id="sign-out-button" class="button button-quiet" type="button" hidden>Cerrar sesión</button>
+        </div>
+      </header>
+
+      <section id="auth-panel" class="auth-panel" hidden>
+        <h1>Acceso al Txoko</h1>
+        <p>Usa tu usuario y PIN. También puedes seguir como invitado para registrar consumos.</p>
+        <div id="auth-forms" class="auth-forms">
+          <form id="login-form" class="auth-form">
+            <h2>Entrar</h2>
+            <label>Usuario<input name="username" autocomplete="username" required minlength="3" maxlength="24"></label>
+            <label>PIN<input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required pattern="[0-9]{6,12}" minlength="6" maxlength="12"></label>
+            <button class="button button-primary" type="submit">Entrar</button>
+          </form>
+          <form id="register-form" class="auth-form">
+            <h2>Crear cuenta</h2>
+            <label>Nombre<input name="firstName" autocomplete="given-name" required maxlength="60"></label>
+            <label>Apellidos<input name="lastName" autocomplete="family-name" required maxlength="100"></label>
+            <label>Usuario único<input name="username" autocomplete="username" required minlength="3" maxlength="24" pattern="[a-zA-Z0-9_.\-]{3,24}"></label>
+            <label>PIN (6–12 números)<input name="pin" type="password" inputmode="numeric" autocomplete="new-password" required pattern="[0-9]{6,12}" minlength="6" maxlength="12"></label>
+            <label id="setup-token-field" hidden>Token inicial del presidente<input name="setupToken" autocomplete="off"></label>
+            <button class="button button-primary" type="submit">Crear cuenta</button>
+          </form>
+        </div>
+        <p id="auth-notice" class="notice" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="inactive-panel" class="auth-panel" hidden>
+        <h1>Cuenta desactivada</h1>
+        <p>Tu acceso al Txoko ha sido retirado. Si crees que es un error, contacta con el presidente.</p>
+      </section>
+
+      <section id="app-content" hidden>
+        <div class="welcome-row">
+          <div>
+            <p class="eyebrow">TXOKO</p>
+            <h1>Inventario y cuentas</h1>
+          </div>
+          <span id="role-badge" class="role-badge" hidden>Presidente</span>
+        </div>
+
+        <nav class="tabs" aria-label="Secciones">
+          <button class="tab-button is-active" type="button" data-tab="inventory" aria-selected="true">Inventario</button>
+          <button class="tab-button" type="button" data-tab="debts" aria-selected="false">Deudas</button>
+          <button class="tab-button" type="button" data-tab="media" aria-selected="false">Archivo multimedia</button>
+          <button id="members-tab" class="tab-button" type="button" data-tab="members" aria-selected="false" hidden>Miembros</button>
+        </nav>
+
+        <p id="notice" class="notice" role="status" aria-live="polite"></p>
+
+        <section id="inventory-section" class="tab-panel" aria-labelledby="inventory-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">EXISTENCIAS</p>
+              <h2 id="inventory-title">Productos</h2>
+            </div>
+            <div class="fund-summary">
+              <span>Fondos generados</span>
+              <strong id="funds-total">0,00&nbsp;€</strong>
+              <small id="funds-detail">Pendiente: 0,00&nbsp;€ · Cobrado: 0,00&nbsp;€</small>
+            </div>
+          </div>
+
+          <form id="product-form" class="product-form" hidden>
+            <h3>Añadir producto</h3>
+            <label>Producto<input name="name" placeholder="Coca-Cola" required maxlength="80"></label>
+            <label>Cantidad<input name="quantity" type="number" min="0" step="1" value="1" required></label>
+            <label>Precio por unidad (€)<input name="price" type="number" min="0.01" step="0.01" placeholder="1,50" required></label>
+            <button class="button button-primary" type="submit">Añadir al inventario</button>
+          </form>
+
+          <div id="product-list" class="product-list"></div>
+          <div id="products-empty" class="empty-state compact">
+            <div class="empty-symbol" aria-hidden="true">✳</div>
+            <h3>Aún no hay productos</h3>
+            <p>El presidente puede añadir el primer producto al inventario.</p>
+          </div>
+        </section>
+
+        <section id="debts-section" class="tab-panel" aria-labelledby="debts-title" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CONSUMOS PENDIENTES</p>
+              <h2 id="debts-title">Deudas</h2>
+            </div>
+          </div>
+          <form id="guest-debt-form" class="guest-debt-form" hidden>
+            <p>¿Eres invitado? Busca tus deudas con el nombre que diste al consumir.</p>
+            <label>Invitado<select name="guestId" required><option value="">Selecciona tu nombre</option></select></label>
+            <button class="button button-secondary" type="submit">Consultar mis deudas</button>
+          </form>
+          <div id="debt-list" class="debt-list"></div>
+          <div id="debts-empty" class="empty-state compact">
+            <div class="empty-symbol" aria-hidden="true">✓</div>
+            <h3>No tienes deudas pendientes</h3>
+            <p>Los consumos por pagar aparecerán aquí.</p>
+          </div>
+        </section>
+
+        <section id="members-section" class="tab-panel" aria-labelledby="members-title" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ADMINISTRACIÓN</p>
+              <h2 id="members-title">Cuentas del Txoko</h2>
+            </div>
+          </div>
+          <p class="section-help">Puedes retirar el acceso a cuentas que no pertenezcan al Txoko. Sus deudas e historial se conservarán.</p>
+          <div id="member-list" class="member-list"></div>
+          <p class="section-help">El acceso permanece guardado en la base de datos local de este teléfono.</p>
+        </section>
+
+        <section id="media-section" class="tab-panel" aria-labelledby="media-title" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">COLECCIÓN LOCAL</p>
+              <h2 id="media-title">Archivo multimedia</h2>
+            </div>
+          </div>
+          <section class="upload-panel" id="drop-zone" aria-labelledby="upload-title">
+            <div class="upload-icon" aria-hidden="true">↑</div>
+            <div class="upload-copy">
+              <h3 id="upload-title">Añade archivos a este navegador</h3>
+              <p>Imágenes, vídeos y audio. No se comparten con los demás miembros.</p>
+            </div>
+            <label class="button button-primary file-picker">
+              <span>Añadir archivos</span>
+              <input id="file-input" type="file" accept="image/*,video/*,audio/*" multiple>
+            </label>
+          </section>
+          <div class="library-heading">
+            <h3>Mi biblioteca <span id="item-count" class="count">0</span></h3>
+            <button id="clear-button" class="button button-quiet" type="button" hidden>Vaciar biblioteca</button>
+          </div>
+          <div class="library-tools">
+            <label class="search-box"><input id="search-input" type="search" placeholder="Buscar en tu biblioteca" aria-label="Buscar en tu biblioteca"></label>
+            <div class="filter-list" role="group" aria-label="Filtrar por tipo">
+              <button class="filter-button is-active" type="button" data-filter="all" aria-pressed="true">Todo</button>
+              <button class="filter-button" type="button" data-filter="image" aria-pressed="false">Imágenes</button>
+              <button class="filter-button" type="button" data-filter="video" aria-pressed="false">Vídeos</button>
+              <button class="filter-button" type="button" data-filter="audio" aria-pressed="false">Audio</button>
+            </div>
+          </div>
+          <div id="media-grid" class="media-grid" aria-live="polite"></div>
+          <div id="media-empty-state" class="empty-state compact">
+            <h3>Tu biblioteca está esperando</h3>
+            <p>Añade un archivo para empezar a crear tu colección.</p>
+          </div>
+        </section>
+      </section>
+
+      <footer class="footer">
+        <p>Inventario compartido del Txoko · Los archivos multimedia se guardan solo en este navegador.</p>
+      </footer>
+    </main>
+
+    <dialog id="consume-dialog" class="dialog">
+      <form method="dialog" class="dialog-close-form"><button class="dialog-close" aria-label="Cerrar">×</button></form>
+      <p class="eyebrow">CONSUMO</p>
+      <h2 id="consume-title">Consumir producto</h2>
+      <p id="consume-description" class="dialog-copy"></p>
+      <div id="member-consumer" class="consumer-choice" hidden>
+        <p>Se cargará el precio a tu cuenta y se añadirá a los fondos del Txoko.</p>
+        <button id="member-consume-button" class="button button-primary" type="button">Confirmar consumo</button>
+      </div>
+      <form id="guest-consumer-form" class="guest-consumer-form">
+        <label>Invitado<select name="guestId" required><option value="">Selecciona tu nombre</option></select></label>
+        <button id="toggle-new-guest" class="text-button" type="button">Es la primera vez que vengo</button>
+        <div id="new-guest-fields" hidden>
+          <label>Nombre<input name="firstName" maxlength="60" autocomplete="given-name"></label>
+          <label>Apellidos<input name="lastName" maxlength="100" autocomplete="family-name"></label>
+        </div>
+        <button class="button button-secondary" type="submit">Consumir como invitado</button>
+      </form>
+      <p id="dialog-error" class="dialog-error" role="status"></p>
+    </dialog>
+  </body>
+</html>
