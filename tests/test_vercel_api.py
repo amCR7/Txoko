@@ -32,6 +32,8 @@ class VercelApiTest(unittest.TestCase):
                 httpx.AsyncClient(transport=transport, base_url="http://txoko.test") as member,
             ):
                 self.assertEqual((await president.get("/")).status_code, 200)
+                self.assertEqual((await president.get("/app.js")).status_code, 200)
+                self.assertEqual((await president.get("/styles.css")).status_code, 200)
                 foreign_origin = await president.post(
                     "/api/logout",
                     headers={"Origin": "https://attacker.test"},

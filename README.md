@@ -20,7 +20,7 @@ El plan gratuito, los límites y la disponibilidad de Neon y Vercel pueden cambi
    - `TXOKO_SETUP_TOKEN`: un secreto aleatorio para el primer registro de presidente. Puedes generar uno con `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 3. Incluye las variables en el entorno **Production** y vuelve a desplegar si las agregas después de la primera publicación.
 
-Vercel detecta `app.py` como aplicación FastAPI y `requirements.txt` instala las dependencias. La función sirve la web y la API; el backend elige PostgreSQL cuando encuentra `DATABASE_URL`. En Vercel no se debe usar SQLite como base compartida.
+`pyproject.toml` señala explícitamente `app.py` como entrada FastAPI para que Vercel no confunda el servidor local `server.py` con la aplicación desplegada. `requirements.txt` instala las dependencias. La función sirve la web y la API; el backend elige PostgreSQL cuando encuentra `DATABASE_URL`. En Vercel no se debe usar SQLite como base compartida.
 
 Abre el dominio que Vercel asigna, selecciona **Acceder / registrarse → Crear cuenta** y usa el valor de `TXOKO_SETUP_TOKEN` como token inicial. La primera cuenta será el presidente. Tras crearla, puedes eliminar `TXOKO_SETUP_TOKEN` de la configuración de Vercel y volver a desplegar; la base conservará el rol y ya no necesitará ese secreto.
 
@@ -43,9 +43,9 @@ En Windows, activa `.venv\Scripts\Activate.ps1` y define las mismas variables de
 
 Si no necesitas conservar el inventario local, omite este paso: la app creará las tablas de Neon automáticamente al recibir la primera solicitud. La base local del ordenador y la base del móvil Termux son independientes; migra el archivo de datos que quieras conservar.
 
-## Desarrollo local
+## Desarrollo local (solo pruebas)
 
-Con Python 3, desde la carpeta del proyecto:
+El uso compartido del Txoko es el dominio de Vercel; no hay que arrancar Termux ni dejar un servidor doméstico encendido. Vercel ejecuta la API cuando recibe peticiones y Neon conserva los datos. Para probar cambios en el ordenador, desde la carpeta del proyecto:
 
 ```sh
 python3 server.py

@@ -647,8 +647,8 @@ async function initializeApp() {
   } catch (error) {
     accountLabel.textContent = "Servidor no disponible";
     authPanel.hidden = false;
-    $("#auth-panel > h1").textContent = "Inicia el servidor de Txoko";
-    $("#auth-panel > p").textContent = "En Termux, ejecuta «python server.py» y vuelve a cargar esta página.";
+    $("#auth-panel > h1").textContent = "No se puede conectar con Txoko";
+    $("#auth-panel > p").textContent = "Esta aplicación se ejecuta en Vercel. Comprueba que el último despliegue haya terminado y que DATABASE_URL esté configurada en Production.";
     $("#auth-forms").hidden = true;
     showAuthNotice(displayError(error), true);
   }
