@@ -10,6 +10,16 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import server
+from server import PostgresConnection
+
+
+class RecordingPostgresConnection:
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, query, parameters):
+        self.calls.append((query, parameters))
+        return self.calls[-1]
 
 
 class LocalApiTest(unittest.TestCase):
@@ -223,6 +233,23 @@ class LocalApiTest(unittest.TestCase):
         history = self.store.list_debts(president)
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["amountCents"], 75)
+
+    def test_postgres_adapter_translates_sqlite_placeholders_and_collations(self):
+        connection = RecordingPostgresConnection()
+        adapter = PostgresConnection(connection)
+
+        adapter.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", ("Pablo",))
+        adapter.execute("BEGIN IMMEDIATE")
+        adapter.execute("SELECT name FROM products ORDER BY name COLLATE NOCASE")
+
+        self.assertEqual(
+            connection.calls,
+            [
+                ("SELECT * FROM users WHERE LOWER(username) = LOWER(%s)", ("Pablo",)),
+                ("BEGIN", ()),
+                ("SELECT name FROM products ORDER BY LOWER(name)", ()),
+            ],
+        )
 
     def test_pot_only_counts_confirmed_income_and_presidentially_approved_expenses(self):
         _, president_opener = self.register("presidente", self.setup_token)

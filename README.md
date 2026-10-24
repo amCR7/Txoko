@@ -1,104 +1,79 @@
-# Txoko · Inventario local
+# Txoko · Inventario y cuentas
 
-Aplicación web de inventario, consumos, deudas, bote e historial compartido. El servidor y la base de datos se ejecutan localmente con Python y SQLite. No usa Firebase, Google Login, reCAPTCHA, Cloud Functions ni dependencias de Python externas.
+Aplicación web para el inventario, consumos, deudas, bote, miembros e historial multimedia. La web y la API se pueden desplegar en Vercel; los datos compartidos se guardan en Neon PostgreSQL. Para desarrollo también se mantiene el servidor local con SQLite. No requiere Firebase, Google Login ni reCAPTCHA.
 
-## 1. Probar en el ordenador
+## Desplegar la aplicación en Vercel
 
-Instala Python 3 y, desde la carpeta del proyecto, arranca el servidor:
+### 1. Preparar Neon
+
+1. Crea un proyecto PostgreSQL en [Neon](https://neon.tech/).
+2. Copia la cadena de conexión de PostgreSQL. Para una app serverless, utiliza la cadena con pooler que proporciona Neon.
+3. No publiques la cadena ni la guardes en GitHub: es una contraseña.
+
+El plan gratuito, los límites y la disponibilidad de Neon y Vercel pueden cambiar; revísalos al crear las cuentas.
+
+### 2. Importar el proyecto en Vercel
+
+1. Sube el repositorio a GitHub (si aún no está allí) e impórtalo en [Vercel](https://vercel.com/).
+2. En **Project Settings → Environment Variables**, configura:
+   - `DATABASE_URL`: cadena de conexión de Neon.
+   - `TXOKO_SETUP_TOKEN`: un secreto aleatorio para el primer registro de presidente. Puedes generar uno con `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
+3. Incluye las variables en el entorno **Production** y vuelve a desplegar si las agregas después de la primera publicación.
+
+Vercel detecta `app.py` como aplicación FastAPI y `requirements.txt` instala las dependencias. La función sirve la web y la API; el backend elige PostgreSQL cuando encuentra `DATABASE_URL`. En Vercel no se debe usar SQLite como base compartida.
+
+Abre el dominio que Vercel asigna, selecciona **Acceder / registrarse → Crear cuenta** y usa el valor de `TXOKO_SETUP_TOKEN` como token inicial. La primera cuenta será el presidente. Tras crearla, puedes eliminar `TXOKO_SETUP_TOKEN` de la configuración de Vercel y volver a desplegar; la base conservará el rol y ya no necesitará ese secreto.
+
+### 3. Pasar los datos locales a Neon (opcional)
+
+Haz la importación antes de usar la base de Neon con datos nuevos. El destino debe estar vacío. El script copia cuentas, sesiones, productos, invitados, consumos, gastos y límites de acceso; verifica el número de filas al terminar y no modifica el SQLite original.
+
+Instala las dependencias en un entorno virtual y define temporalmente las variables de entorno en el ordenador. Usa la misma cadena de Neon y un `TXOKO_SETUP_TOKEN` temporal o el configurado en Vercel:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+read -rsp "URL de conexión de Neon: " DATABASE_URL; export DATABASE_URL; printf '\n'
+read -rsp "Token inicial: " TXOKO_SETUP_TOKEN; export TXOKO_SETUP_TOKEN; printf '\n'
+python migrate_sqlite_to_neon.py ~/.txoko/txoko.sqlite3
+```
+
+En Windows, activa `.venv\Scripts\Activate.ps1` y define las mismas variables de entorno en PowerShell antes de ejecutar el script. Detén el servidor local mientras se migra y no pegues las credenciales en archivos del proyecto ni en GitHub. La migración copia los hash de PIN y las sesiones existentes; los usuarios podrán seguir con sus cuentas y sesiones si la importación terminó correctamente.
+
+Si no necesitas conservar el inventario local, omite este paso: la app creará las tablas de Neon automáticamente al recibir la primera solicitud. La base local del ordenador y la base del móvil Termux son independientes; migra el archivo de datos que quieras conservar.
+
+## Desarrollo local
+
+Con Python 3, desde la carpeta del proyecto:
 
 ```sh
 python3 server.py
 ```
 
-En Windows, si `python3` no existe, usa `python server.py`. Abre <http://127.0.0.1:8080> en el navegador del mismo ordenador.
+Abre <http://127.0.0.1:8080>. Si `DATABASE_URL` no está definido, el servidor local utiliza SQLite en `~/.txoko/` y crea el token inicial en su consola. Para probar la app FastAPI localmente, instala `requirements-test.txt`, define `DATABASE_URL` y `TXOKO_SETUP_TOKEN`, y arranca `uvicorn app:app --reload`.
 
-Por seguridad, el servidor solo escucha en `127.0.0.1` por defecto: nadie más en la red podrá conectarse. La primera vez, la consola de Python muestra un **token inicial del presidente**. En la web, abre **Acceder / registrarse → Crear cuenta** y crea tu cuenta con nombre, apellidos, usuario y un PIN numérico de 6 a 12 cifras; introduce también el token. Esa primera cuenta obtiene el rol de presidente.
+La base de datos que use el modo local no se sincroniza automáticamente con Neon. Para compartir datos entre los miembros, todos deben entrar al mismo dominio de Vercel.
 
-Mantén abierta la consola mientras pruebas la aplicación. Para apagar el servidor, vuelve a esa consola y pulsa `Ctrl+C`. La base de datos y el token temporal se guardan en `~/.txoko/`, fuera de la carpeta del proyecto y del repositorio Git.
+## Funciones y datos
 
-## 2. Subir el código a GitHub
+- **Inventario y deudas:** los miembros consumen productos; las cuentas de invitados se identifican con nombre y apellidos. El presidente confirma que recibió un pago.
+- **Bote:** suma solo pagos confirmados. Los miembros pueden registrar compras y el presidente puede aprobarlas o rechazarlas; un gasto aprobado solo se descuenta si hay saldo suficiente.
+- **Miembros:** el presidente puede retirar el acceso sin borrar el historial.
+- **Archivo multimedia:** los archivos añadidos se guardan en el almacenamiento local del navegador que los subió, no en Neon. El despliegue hace que la sección esté disponible desde Vercel, pero esos archivos no se comparten entre dispositivos ni se respaldan allí.
+- **Acceso:** las cuentas usan nombre, apellidos, usuario y PIN de 6 a 12 cifras. El PIN se almacena como hash con sal. Las sesiones usan cookies `HttpOnly`, `SameSite=Strict` y caducan a los 30 días.
 
-Crea un repositorio vacío en GitHub. Desde la carpeta del proyecto, sube el código:
+Los invitados no tienen cuenta ni PIN, por lo que alguien podría consultar o avisar una deuda con el nombre de otra persona. El presidente debe verificar personalmente el pago antes de confirmarlo.
 
-```sh
-git init
-git add .
-git commit -m "Crear servidor local de Txoko"
-git branch -M main
-git remote add origin https://github.com/TU-USUARIO/TU-REPOSITORIO.git
-git push -u origin main
-```
-
-Sustituye `TU-USUARIO` y `TU-REPOSITORIO`. GitHub guarda el código, pero no arranca el servidor. **No subas la base de datos ni el token del presidente**: ambos están en `~/.txoko/`, fuera del proyecto.
-
-## 3. Ejecutar en Termux en el móvil
-
-En Termux, instala Python y Git, clona el repositorio y arranca la aplicación:
+## Pruebas
 
 ```sh
-pkg update
-pkg install python git
-git clone https://github.com/TU-USUARIO/TU-REPOSITORIO.git
-cd TU-REPOSITORIO
-python server.py --host 0.0.0.0
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-test.txt
+python -m unittest discover -s tests -v
+python -m py_compile server.py app.py migrate_sqlite_to_neon.py
+node --check app.js
 ```
 
-El móvil que ejecuta ese comando es el **único servidor y dueño de la base de datos compartida**. Abre `http://localhost:8080` en el navegador de ese mismo móvil. Los otros miembros no ejecutan `server.py` ni crean otra base: abren la dirección IP de ese móvil servidor en sus navegadores.
-
-La **primera vez que arranques el servidor en Termux**, la consola mostrará un token inicial. Crea allí la cuenta de presidente. El token y la base del ordenador son distintos: si quieres conservar los datos de la prueba, copia antes la base de datos del ordenador a Termux como se explica abajo; luego usa el usuario y PIN ya existentes, y no registres otra cuenta de presidente.
-
-### Dar acceso a los otros móviles
-
-Para usarlo desde otros móviles conectados a la misma Wi-Fi, deja el servidor abierto y averigua la IP local del teléfono servidor:
-
-```sh
-ip addr show wlan0
-```
-
-En **todos los otros móviles y ordenadores**, abre la misma URL, sustituyendo la IP; por ejemplo `http://192.168.1.23:8080`. Esa URL conecta con la base única de Termux. No uses `localhost` en otros dispositivos: `localhost` siempre significa “este mismo dispositivo”. Si Android o la red bloquea la conexión, comprueba que Termux tenga permiso de red local y que todos estén conectados a la misma Wi-Fi.
-
-El teléfono servidor debe permanecer encendido, conectado a la Wi-Fi y con Termux activo para que los demás compartan el inventario. Si necesitas la orden `termux-wake-lock`, instala la utilidad con `pkg install termux-api` y también la aplicación Android **Termux:API** desde la misma fuente que Termux; después ejecuta `termux-wake-lock` en otra sesión de Termux para pedir a Android que no suspenda la CPU. Configura además Android para permitir actividad en segundo plano y quitar la optimización de batería a Termux. Para parar el servidor, usa `Ctrl+C`; al detenerlo, los demás dispositivos dejarán de tener acceso hasta que lo arranques otra vez.
-
-El acceso por Wi-Fi usa HTTP: utilízalo solo en una red de confianza y **no publiques el puerto directamente en Internet**. Para entrar desde fuera de casa sin abrir el puerto, instala y configura una VPN privada como Tailscale en el móvil servidor y los dispositivos miembros; conectados a esa VPN, todos siguen usando la IP privada del servidor.
-
-## La base de datos única y cómo trasladarla desde el ordenador
-
-En funcionamiento normal solo importa la base del móvil servidor: `~/.txoko/txoko.sqlite3`. Los navegadores de los miembros no guardan una copia del inventario. La prueba del ordenador sí tiene otra base, porque la creó el servidor del ordenador; no se sincroniza automáticamente con Termux.
-
-Si quieres que los datos introducidos durante la prueba en el ordenador aparezcan también en Termux, traslada **una sola vez** el archivo SQLite antes de iniciar el servidor en el móvil. En Linux, puedes copiarlo por una conexión SSH/SFTP al almacenamiento privado de Termux; también puedes usar un cable USB y `termux-setup-storage`. Colócalo en `~/.txoko/txoko.sqlite3` en Termux. Haz una copia de respaldo y detén el servidor antes de copiarlo. No copies la carpeta de datos a GitHub.
-
-Si no trasladamos esa base, al iniciar Termux por primera vez se creará una base nueva en el móvil: en ese caso hay que crear el presidente y los productos en esa base nueva. A partir de entonces todos usan el mismo servidor del móvil.
-
-Para respaldar la base de datos activa, lo más sencillo es detener el servidor con `Ctrl+C` y copiar el archivo:
-
-```sh
-cp ~/.txoko/txoko.sqlite3 ~/txoko-respaldo.sqlite3
-```
-
-La biblioteca de imágenes, vídeos y audio permanece en el navegador donde se añadió; no forma parte de la base SQLite ni se transfiere junto con ella.
-
-## Cuentas e invitados
-
-Las cuentas locales usan nombre, apellidos, usuario y un PIN numérico. El PIN se almacena como hash con sal; no se guarda en texto claro. Las sesiones permanecen activas hasta cerrar sesión o hasta que transcurren 30 días. Ocho intentos fallidos desde la misma IP bloquean nuevos intentos durante 15 minutos.
-
-El presidente puede desactivar cuentas de miembros. Se conserva su historial y sus deudas, pero ya no pueden iniciar sesión. Si aún no hay presidente y pierdes el token inicial, desde la carpeta del proyecto ejecuta:
-
-```sh
-python3 server.py --reset-setup-token
-```
-
-No compartas ese token: quien lo use primero será presidente.
-
-Los invitados pueden consumir sin crear una cuenta. La primera vez ponen nombre y apellidos; después pueden seleccionarse en una lista. Tal como se eligió, no se pide PIN a invitados, así que alguien podría consultar o avisar una deuda usando el nombre de otra persona. El presidente debe verificar cualquier pago en persona antes de confirmarlo. Invitados con el mismo nombre y apellidos comparten su historial.
-
-## Bote y gastos del Txoko
-
-El bote suma únicamente los consumos cuyo pago haya confirmado el presidente; las deudas y los avisos de pago pendientes no se consideran dinero ingresado. En la pestaña **Bote**, cualquier miembro con cuenta activa puede registrar una compra indicando concepto e importe. La solicitud queda pendiente y no resta saldo hasta que el presidente la apruebe. Al aprobarla, el gasto queda asociado al solicitante y al presidente que lo revisó y se descuenta del saldo disponible. El servidor impide aprobar un gasto si el bote no tiene fondos suficientes. El presidente también puede rechazar una solicitud; el historial y el estado de cada solicitud quedan visibles para los miembros con sesión iniciada.
-
-## Pruebas automáticas
-
-Con Python 3, desde la carpeta del proyecto:
-
-```sh
-python3 -m unittest discover -s tests -v
-```
+No subas archivos `.sqlite3`, credenciales de Neon ni secretos al repositorio.

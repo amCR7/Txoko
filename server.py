@@ -51,6 +51,40 @@ class ClosingConnection(sqlite3.Connection):
             self.close()
 
 
+class PostgresConnection:
+    def __init__(self, connection: Any):
+        self.connection = connection
+
+    def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> Any:
+        query = query.replace("BEGIN IMMEDIATE", "BEGIN")
+        query = query.replace("username = ? COLLATE NOCASE", "LOWER(username) = LOWER(?)")
+        query = query.replace("ORDER BY name COLLATE NOCASE", "ORDER BY LOWER(name)")
+        query = query.replace("?", "%s")
+        return self.connection.execute(query, parameters)
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def __enter__(self) -> PostgresConnection:
+        return self
+
+    def __exit__(self, exception_type: Any, exception: Any, traceback: Any) -> None:
+        try:
+            transaction_open = self.connection.info.transaction_status.name != "IDLE"
+            if exception_type and transaction_open:
+                self.rollback()
+            elif transaction_open:
+                self.commit()
+        finally:
+            self.close()
+
+
 def utc_now() -> int:
     return int(time.time())
 
@@ -95,12 +129,12 @@ def money_summary(connection: sqlite3.Connection) -> dict[str, int]:
         """
     ).fetchone()
     return {
-        "totalSalesCents": income["total"],
-        "pendingCents": income["pending"],
-        "collectedCents": income["collected"],
-        "approvedExpensesCents": expenses["approved"],
-        "pendingExpensesCents": expenses["pending"],
-        "potBalanceCents": income["collected"] - expenses["approved"],
+        "totalSalesCents": int(income["total"]),
+        "pendingCents": int(income["pending"]),
+        "collectedCents": int(income["collected"]),
+        "approvedExpensesCents": int(expenses["approved"]),
+        "pendingExpensesCents": int(expenses["pending"]),
+        "potBalanceCents": int(income["collected"]) - int(expenses["approved"]),
     }
 
 
@@ -116,21 +150,39 @@ def public_user(row: sqlite3.Row) -> dict[str, Any]:
 
 
 class TxokoStore:
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(self.data_dir, 0o700)
-        except OSError:
-            LOG.exception("Could not restrict the data folder permissions")
-        self.database_path = data_dir / "txoko.sqlite3"
-        self.setup_token_path = data_dir / ".txoko-admin-token"
+    def __init__(self, data_dir: Path | None = None):
+        self.database_url = os.environ.get("DATABASE_URL") if data_dir is None else None
+        self.is_postgres = bool(self.database_url)
+        self.data_dir = data_dir or Path.home() / ".txoko"
+        if not self.is_postgres:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(self.data_dir, 0o700)
+            except OSError:
+                LOG.exception("Could not restrict the data folder permissions")
+        self.database_path = self.data_dir / "txoko.sqlite3"
+        self.setup_token_path = self.data_dir / ".txoko-admin-token"
         self._token_lock = threading.Lock()
         self._initialize_database()
         if self.needs_initial_president():
-            self._ensure_setup_token()
+            if not self._ensure_setup_token():
+                raise RuntimeError(
+                    "Aún no hay presidente. Configura TXOKO_SETUP_TOKEN antes de iniciar la aplicación."
+                )
 
-    def connect(self) -> sqlite3.Connection:
+    def connect(self) -> Any:
+        if self.is_postgres:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            connection = psycopg.connect(
+                self.database_url,
+                row_factory=dict_row,
+                autocommit=False,
+                prepare_threshold=None,
+                connect_timeout=10,
+            )
+            return PostgresConnection(connection)
         connection = sqlite3.connect(
             self.database_path,
             timeout=15,
@@ -143,6 +195,8 @@ class TxokoStore:
         return connection
 
     def _ensure_setup_token(self, replace: bool = False) -> str | None:
+        if self.is_postgres:
+            return os.environ.get("TXOKO_SETUP_TOKEN")
         with self._token_lock:
             if self.setup_token_path.exists() and not replace:
                 try:
@@ -168,12 +222,99 @@ class TxokoStore:
                 raise ApiError(HTTPStatus.CONFLICT, "Ya existe un presidente activo.")
         finally:
             connection.close()
+        if self.is_postgres:
+            raise ApiError(
+                HTTPStatus.CONFLICT,
+                "Cambia TXOKO_SETUP_TOKEN en la configuración del despliegue.",
+            )
         token = self._ensure_setup_token(replace=True)
         if not token:
             raise ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "No se pudo guardar el token de configuración.")
         return token
 
     def _initialize_database(self) -> None:
+        if self.is_postgres:
+            schema = """
+                CREATE TABLE IF NOT EXISTS users (
+                  id TEXT PRIMARY KEY,
+                  username TEXT NOT NULL UNIQUE,
+                  first_name TEXT NOT NULL,
+                  last_name TEXT NOT NULL,
+                  pin_salt BYTEA NOT NULL,
+                  pin_hash BYTEA NOT NULL,
+                  role TEXT NOT NULL CHECK (role IN ('president', 'member', 'former_member')),
+                  active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                  created_at BIGINT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower
+                  ON users (LOWER(username));
+                CREATE TABLE IF NOT EXISTS sessions (
+                  token_hash TEXT PRIMARY KEY,
+                  user_id TEXT NOT NULL REFERENCES users(id),
+                  expires_at BIGINT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
+                CREATE TABLE IF NOT EXISTS products (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  name_key TEXT NOT NULL UNIQUE,
+                  stock INTEGER NOT NULL CHECK (stock >= 0),
+                  price_cents BIGINT NOT NULL CHECK (price_cents > 0),
+                  active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS guests (
+                  id TEXT PRIMARY KEY,
+                  first_name TEXT NOT NULL,
+                  last_name TEXT NOT NULL,
+                  normalized_name TEXT NOT NULL,
+                  created_at BIGINT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS transactions (
+                  id TEXT PRIMARY KEY,
+                  product_id TEXT NOT NULL,
+                  item_name TEXT NOT NULL,
+                  amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+                  consumer_type TEXT NOT NULL CHECK (consumer_type IN ('member', 'guest')),
+                  consumer_uid TEXT,
+                  guest_id TEXT,
+                  consumer_name TEXT NOT NULL,
+                  consumer_last_name TEXT NOT NULL,
+                  status TEXT NOT NULL CHECK (status IN ('pending', 'payment_requested', 'paid')),
+                  created_at BIGINT NOT NULL,
+                  payment_requested_at BIGINT,
+                  paid_at BIGINT,
+                  confirmed_by TEXT
+                );
+                CREATE TABLE IF NOT EXISTS expenses (
+                  id TEXT PRIMARY KEY,
+                  description TEXT NOT NULL,
+                  amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+                  requester_id TEXT NOT NULL,
+                  requester_name TEXT NOT NULL,
+                  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+                  created_at BIGINT NOT NULL,
+                  reviewed_by TEXT,
+                  reviewer_name TEXT,
+                  reviewed_at BIGINT
+                );
+                CREATE INDEX IF NOT EXISTS expenses_status_created ON expenses(status, created_at);
+                CREATE INDEX IF NOT EXISTS expenses_requester_created ON expenses(requester_id, created_at);
+                CREATE INDEX IF NOT EXISTS transactions_member_debts ON transactions(consumer_uid, status, created_at);
+                CREATE INDEX IF NOT EXISTS transactions_guest_debts ON transactions(guest_id, status, created_at);
+                CREATE TABLE IF NOT EXISTS login_attempts (
+                  attempt_key TEXT PRIMARY KEY,
+                  failures INTEGER NOT NULL,
+                  locked_until BIGINT NOT NULL
+                );
+            """
+            with self.connect() as connection:
+                for statement in schema.split(";"):
+                    if statement.strip():
+                        connection.execute(statement)
+            return
+
         with self.connect() as connection:
             connection.executescript(
                 """
@@ -310,11 +451,13 @@ class TxokoStore:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            if self.is_postgres:
+                connection.execute("SELECT pg_advisory_xact_lock(701942)")
             president = connection.execute(
                 "SELECT id FROM users WHERE role = 'president' AND active = 1 LIMIT 1"
             ).fetchone()
             if president is None:
-                saved_token = self.setup_token_path.read_text(encoding="utf-8").strip() if self.setup_token_path.exists() else ""
+                saved_token = self._ensure_setup_token() or ""
                 if not isinstance(setup_token, str) or not saved_token or not hmac.compare_digest(setup_token, saved_token):
                     raise ApiError(HTTPStatus.FORBIDDEN, "Hace falta el token inicial del presidente. Comprueba la consola de Termux.")
                 role = "president"
@@ -335,17 +478,20 @@ class TxokoStore:
         except sqlite3.IntegrityError as error:
             connection.rollback()
             raise ApiError(HTTPStatus.CONFLICT, "Ese nombre de usuario ya está en uso.") from error
-        except Exception:
+        except Exception as error:
             connection.rollback()
+            if getattr(error, "sqlstate", None) == "23505":
+                raise ApiError(HTTPStatus.CONFLICT, "Ese nombre de usuario ya está en uso.") from error
             raise
         finally:
             connection.close()
 
         if role == "president":
-            try:
-                self.setup_token_path.unlink(missing_ok=True)
-            except OSError:
-                LOG.exception("Could not remove the consumed administrator token")
+            if not self.is_postgres:
+                try:
+                    self.setup_token_path.unlink(missing_ok=True)
+                except OSError:
+                    LOG.exception("Could not remove the consumed administrator token")
         return self.get_user(user_id), self.create_session(user_id)
 
     def get_user(self, user_id: str) -> sqlite3.Row:
@@ -499,6 +645,11 @@ class TxokoStore:
         now = utc_now()
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if self.is_postgres:
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                    (product_id,),
+                )
             existing = connection.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
             if existing and existing["active"]:
                 connection.rollback()
@@ -554,7 +705,8 @@ class TxokoStore:
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             product = connection.execute(
-                "SELECT * FROM products WHERE id = ? AND active = 1",
+                "SELECT * FROM products WHERE id = ? AND active = 1"
+                + (" FOR UPDATE" if self.is_postgres else ""),
                 (product_id,),
             ).fetchone()
             if product is None:
@@ -583,7 +735,8 @@ class TxokoStore:
                     guest = connection.execute("SELECT * FROM guests WHERE id = ?", (resolved_guest_id,)).fetchone()
                     if guest is None:
                         connection.execute(
-                            "INSERT INTO guests(id, first_name, last_name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)",
+                            "INSERT INTO guests(id, first_name, last_name, normalized_name, created_at) "
+                            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
                             (
                                 resolved_guest_id,
                                 first_name,
@@ -629,7 +782,10 @@ class TxokoStore:
     def request_payment(self, user: sqlite3.Row | None, transaction_id: str, guest_id: Any) -> None:
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            debt = connection.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+            debt = connection.execute(
+                "SELECT * FROM transactions WHERE id = ?" + (" FOR UPDATE" if self.is_postgres else ""),
+                (transaction_id,),
+            ).fetchone()
             if debt is None:
                 raise ApiError(HTTPStatus.NOT_FOUND, "No se encuentra esa deuda.")
             if debt["status"] != "pending":
@@ -648,7 +804,10 @@ class TxokoStore:
         self.require_president(user)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            debt = connection.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+            debt = connection.execute(
+                "SELECT * FROM transactions WHERE id = ?" + (" FOR UPDATE" if self.is_postgres else ""),
+                (transaction_id,),
+            ).fetchone()
             if debt is None:
                 raise ApiError(HTTPStatus.NOT_FOUND, "No se encuentra esa deuda.")
             if debt["status"] != "payment_requested":
@@ -725,7 +884,12 @@ class TxokoStore:
         status = "approved" if approved else "rejected"
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            expense = connection.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)).fetchone()
+            if self.is_postgres:
+                connection.execute("SELECT pg_advisory_xact_lock(701943)")
+            expense = connection.execute(
+                "SELECT * FROM expenses WHERE id = ?" + (" FOR UPDATE" if self.is_postgres else ""),
+                (expense_id,),
+            ).fetchone()
             if expense is None:
                 raise ApiError(HTTPStatus.NOT_FOUND, "No se encuentra ese gasto.")
             if expense["status"] != "pending":
@@ -996,7 +1160,7 @@ class TxokoHandler(SimpleHTTPRequestHandler):
 
 
 def run_server(host: str, port: int, data_dir: Path, secure_cookie: bool) -> None:
-    store = TxokoStore(data_dir)
+    store = TxokoStore(None if os.environ.get("DATABASE_URL") else data_dir)
     if store.needs_initial_president():
         token = store._ensure_setup_token()
         print("\nTXOKO: aún no hay presidente.", flush=True)
@@ -1043,7 +1207,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = parse_args()
-    store = TxokoStore(args.data_dir)
+    store = TxokoStore(None if os.environ.get("DATABASE_URL") else args.data_dir)
     if args.reset_setup_token:
         print(f"Nuevo token inicial: {store.reset_setup_token()}")
         return
