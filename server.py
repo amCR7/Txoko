@@ -264,6 +264,19 @@ class TxokoStore:
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS inventory_events (
+                  id TEXT PRIMARY KEY,
+                  product_id TEXT NOT NULL,
+                  product_name TEXT NOT NULL,
+                  action TEXT NOT NULL CHECK (action IN ('product_added', 'stock_added')),
+                  quantity INTEGER NOT NULL CHECK (quantity >= 0),
+                  price_cents BIGINT NOT NULL CHECK (price_cents > 0),
+                  actor_id TEXT NOT NULL,
+                  actor_name TEXT NOT NULL,
+                  created_at BIGINT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS inventory_events_created
+                  ON inventory_events(created_at);
                 CREATE TABLE IF NOT EXISTS guests (
                   id TEXT PRIMARY KEY,
                   first_name TEXT NOT NULL,
@@ -345,6 +358,19 @@ class TxokoStore:
                   created_at INTEGER NOT NULL,
                   updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS inventory_events (
+                  id TEXT PRIMARY KEY,
+                  product_id TEXT NOT NULL,
+                  product_name TEXT NOT NULL,
+                  action TEXT NOT NULL CHECK (action IN ('product_added', 'stock_added')),
+                  quantity INTEGER NOT NULL CHECK (quantity >= 0),
+                  price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+                  actor_id TEXT NOT NULL,
+                  actor_name TEXT NOT NULL,
+                  created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS inventory_events_created
+                  ON inventory_events(created_at);
                 CREATE TABLE IF NOT EXISTS guests (
                   id TEXT PRIMARY KEY,
                   first_name TEXT NOT NULL,
@@ -560,6 +586,34 @@ class TxokoStore:
             for row in rows
         ]
 
+    def list_inventory_events(self, user: sqlite3.Row | None) -> list[dict[str, Any]]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión para consultar la actividad del inventario.")
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, product_id, product_name, action, quantity, price_cents,
+                       actor_id, actor_name, created_at
+                FROM inventory_events
+                ORDER BY created_at DESC, id DESC
+                LIMIT 100
+                """
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "productId": row["product_id"],
+                "productName": row["product_name"],
+                "action": row["action"],
+                "quantity": row["quantity"],
+                "priceCents": row["price_cents"],
+                "actorId": row["actor_id"],
+                "actorName": row["actor_name"],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
     def list_debts(self, user: sqlite3.Row | None) -> list[dict[str, Any]]:
         with self.connect() as connection:
             if user and user["role"] == "president":
@@ -631,8 +685,9 @@ class TxokoStore:
             ).fetchall()
         return [self.public_transaction(row) for row in rows]
 
-    def create_product(self, user: sqlite3.Row, payload: dict[str, Any]) -> dict[str, Any]:
-        self.require_president(user)
+    def create_product(self, user: sqlite3.Row | None, payload: dict[str, Any]) -> dict[str, Any]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión con una cuenta activa para añadir productos.")
         name = clean_name(payload.get("name"), "Nombre del producto", 80)
         stock = payload.get("stock")
         price_cents = payload.get("priceCents")
@@ -663,6 +718,24 @@ class TxokoStore:
                 """,
                 (product_id, name, name_key, stock, price_cents, now, now),
             )
+            connection.execute(
+                """
+                INSERT INTO inventory_events(
+                  id, product_id, product_name, action, quantity, price_cents,
+                  actor_id, actor_name, created_at
+                ) VALUES (?, ?, ?, 'product_added', ?, ?, ?, ?, ?)
+                """,
+                (
+                    secrets.token_hex(16),
+                    product_id,
+                    name,
+                    stock,
+                    price_cents,
+                    user["id"],
+                    f"{user['first_name']} {user['last_name']}",
+                    now,
+                ),
+            )
             connection.commit()
         return {"id": product_id, "name": name, "stock": stock, "priceCents": price_cents, "active": True}
 
@@ -676,12 +749,35 @@ class TxokoStore:
         if type(amount) is not int or not 1 <= amount <= 1_000_000:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Introduce una cantidad entera mayor que cero.")
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "UPDATE products SET stock = stock + ?, updated_at = ? WHERE id = ? AND active = 1 AND stock + ? <= 1000000",
                 (amount, utc_now(), product_id, amount),
             )
             if cursor.rowcount != 1:
                 raise ApiError(HTTPStatus.CONFLICT, "El producto no está disponible o la cantidad supera el límite.")
+            product = connection.execute(
+                "SELECT name, price_cents FROM products WHERE id = ?",
+                (product_id,),
+            ).fetchone()
+            connection.execute(
+                """
+                INSERT INTO inventory_events(
+                  id, product_id, product_name, action, quantity, price_cents,
+                  actor_id, actor_name, created_at
+                ) VALUES (?, ?, ?, 'stock_added', ?, ?, ?, ?, ?)
+                """,
+                (
+                    secrets.token_hex(16),
+                    product_id,
+                    product["name"],
+                    amount,
+                    product["price_cents"],
+                    user["id"],
+                    f"{user['first_name']} {user['last_name']}",
+                    utc_now(),
+                ),
+            )
 
     def archive_product(self, user: sqlite3.Row, product_id: str) -> None:
         self.require_president(user)
@@ -1043,6 +1139,10 @@ class TxokoHandler(SimpleHTTPRequestHandler):
                 self._send_json({"user": public_user(user) if user else None})
             elif parsed.path == "/api/products":
                 self._send_json({"products": self.store.list_products()})
+            elif parsed.path == "/api/inventory-events":
+                self._send_json({
+                    "events": self.store.list_inventory_events(self._user(required=True))
+                })
             elif parsed.path == "/api/ledger":
                 with self.store.connect() as connection:
                     self._send_json(money_summary(connection))

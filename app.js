@@ -120,11 +120,14 @@ function setUser(user) {
   signOutButton.hidden = !user;
   $("#role-badge").hidden = user?.role !== "president";
   $("#members-tab").hidden = user?.role !== "president";
-  $("#product-form").hidden = user?.role !== "president";
+  $("#product-form").hidden = !user || user.role === "former_member";
+  $("#inventory-activity-section").hidden = !user || user.role === "former_member";
   $("#guest-debt-form").hidden = Boolean(user);
   $("#expense-form").hidden = !user || user.role === "former_member";
   $("#expenses-login-hint").hidden = Boolean(user);
   if (!user) {
+    $("#inventory-activity-list").replaceChildren();
+    $("#inventory-activity-empty").hidden = true;
     $("#expenses-list").replaceChildren();
     $("#expenses-empty").hidden = true;
   }
@@ -141,6 +144,7 @@ async function refreshData() {
     ]);
     products = inventory.products;
     renderProducts();
+    if (currentUser && !$("#inventory-section").hidden) await loadInventoryEvents();
     $("#funds-total").textContent = formatMoney(ledger.totalSalesCents);
     $("#funds-detail").textContent = `Pendiente: ${formatMoney(ledger.pendingCents)} · Cobrado: ${formatMoney(ledger.collectedCents)}`;
     $("#pot-balance").textContent = formatMoney(ledger.potBalanceCents);
@@ -151,6 +155,36 @@ async function refreshData() {
   } catch (error) {
     showNotice(`No se pudieron actualizar los datos: ${displayError(error)}`, true);
   }
+}
+
+async function loadInventoryEvents() {
+  try {
+    const result = await api("/api/inventory-events");
+    renderInventoryEvents(result.events);
+  } catch (error) {
+    showNotice(`No se pudo cargar el registro del inventario: ${displayError(error)}`, true);
+  }
+}
+
+function renderInventoryEvents(events) {
+  const list = $("#inventory-activity-list");
+  list.replaceChildren();
+  $("#inventory-activity-empty").hidden = events.length > 0;
+  events.forEach((entry) => {
+    const row = document.createElement("article");
+    row.className = "inventory-activity-row";
+    const actionText = entry.action === "product_added" ? "Añadió" : "Repuso";
+    const timestamp = new Date(entry.createdAt * 1000).toLocaleString("es-ES");
+    row.append(
+      safeText("strong", "", `${actionText} ${entry.productName}`),
+      safeText(
+        "span",
+        "inventory-activity-details",
+        `${entry.quantity} uds. · ${formatMoney(entry.priceCents)} por unidad · ${entry.actorName} · ${timestamp}`,
+      ),
+    );
+    list.append(row);
+  });
 }
 
 function renderProducts() {
@@ -583,6 +617,7 @@ function setupEvents() {
     button.addEventListener("click", () => {
       showTab(button.dataset.tab);
       if (button.dataset.tab === "members" && currentUser?.role === "president") loadMembers();
+      if (button.dataset.tab === "inventory" && currentUser) loadInventoryEvents();
       if (button.dataset.tab === "pot" && currentUser) loadExpenses();
     });
   });

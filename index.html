@@ -7,7 +7,7 @@
     <meta name="description" content="Inventario, cuentas, bote y archivo multimedia de Txoko.">
     <title>Txoko · Inventario</title>
     <link rel="stylesheet" href="styles.css">
-    <script type="module" src="app.js?v=vercel"></script>
+    <script type="module" src="app.js?v=inventory-audit"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -84,7 +84,8 @@
           </div>
 
           <form id="product-form" class="product-form" hidden>
-            <h3>Añadir producto</h3>
+            <h3>Añadir un producto al inventario</h3>
+            <p>Los productos que añadas quedarán registrados con tu nombre, la cantidad y el precio.</p>
             <label>Producto<input name="name" placeholder="Coca-Cola" required maxlength="80"></label>
             <label>Cantidad<input name="quantity" type="number" min="0" step="1" value="1" required></label>
             <label>Precio por unidad (€)<input name="price" type="number" min="0.01" step="0.01" placeholder="1,50" required></label>
@@ -95,7 +96,17 @@
           <div id="products-empty" class="empty-state compact">
             <div class="empty-symbol" aria-hidden="true">✳</div>
             <h3>Aún no hay productos</h3>
-            <p>El presidente puede añadir el primer producto al inventario.</p>
+            <p>Una persona del Txoko puede añadir el primer producto al inventario.</p>
+          </div>
+          <div id="inventory-activity-section" class="inventory-activity-section" hidden>
+            <div class="expense-heading">
+              <div>
+                <p class="eyebrow">REGISTRO</p>
+                <h3>Actividad del inventario</h3>
+              </div>
+            </div>
+            <div id="inventory-activity-list" class="inventory-activity-list"></div>
+            <p id="inventory-activity-empty" class="muted-copy" hidden>Aún no hay actividad registrada.</p>
           </div>
         </section>
 

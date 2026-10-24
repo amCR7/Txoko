@@ -161,6 +161,10 @@ async def api_router(request: Request, api_path: str) -> JSONResponse:
             return json_response({"user": public_user(user) if user else None})
         if path == "/products":
             return json_response({"products": store.list_products()})
+        if path == "/inventory-events":
+            return json_response({
+                "events": store.list_inventory_events(session_user(store, request, required=True))
+            })
         if path == "/ledger":
             with store.connect() as connection:
                 return json_response(money_summary(connection))

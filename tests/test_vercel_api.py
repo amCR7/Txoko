@@ -30,6 +30,7 @@ class VercelApiTest(unittest.TestCase):
             async with (
                 httpx.AsyncClient(transport=transport, base_url="http://txoko.test") as president,
                 httpx.AsyncClient(transport=transport, base_url="http://txoko.test") as member,
+                httpx.AsyncClient(transport=transport, base_url="http://txoko.test") as guest,
             ):
                 self.assertEqual((await president.get("/")).status_code, 200)
                 self.assertEqual((await president.get("/app.js")).status_code, 200)
@@ -70,6 +71,24 @@ class VercelApiTest(unittest.TestCase):
                     },
                 )
                 self.assertEqual(joined.status_code, 201, joined.text)
+                member_product = await member.post(
+                    "/api/products",
+                    json={"name": "Agua", "stock": 6, "priceCents": 100},
+                )
+                self.assertEqual(member_product.status_code, 201, member_product.text)
+                events = await member.get("/api/inventory-events")
+                self.assertEqual(events.status_code, 200, events.text)
+                member_event = next(
+                    event
+                    for event in events.json()["events"]
+                    if event["productId"] == member_product.json()["product"]["id"]
+                )
+                self.assertEqual(member_event["actorName"], "Ana Socia")
+                self.assertEqual(member_event["quantity"], 6)
+                self.assertEqual(
+                    (await guest.get("/api/inventory-events")).status_code,
+                    401,
+                )
                 consumed = await member.post(
                     "/api/consume",
                     json={"productId": product.json()["product"]["id"]},

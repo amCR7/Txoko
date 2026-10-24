@@ -26,7 +26,7 @@ Abre el dominio que Vercel asigna, selecciona **Acceder / registrarse → Crear 
 
 ### 3. Pasar los datos locales a Neon (opcional)
 
-Haz la importación antes de usar la base de Neon con datos nuevos. El destino debe estar vacío. El script copia cuentas, sesiones, productos, invitados, consumos, gastos y límites de acceso; verifica el número de filas al terminar y no modifica el SQLite original.
+Haz la importación antes de usar la base de Neon con datos nuevos. El destino debe estar vacío. El script copia cuentas, sesiones, productos, actividad de inventario, invitados, consumos, gastos y límites de acceso; verifica el número de filas al terminar y no modifica el SQLite original.
 
 Instala las dependencias en un entorno virtual y define temporalmente las variables de entorno en el ordenador. Usa la misma cadena de Neon y un `TXOKO_SETUP_TOKEN` temporal o el configurado en Vercel:
 
@@ -57,7 +57,7 @@ La base de datos que use el modo local no se sincroniza automáticamente con Neo
 
 ## Funciones y datos
 
-- **Inventario y deudas:** los miembros consumen productos; las cuentas de invitados se identifican con nombre y apellidos. El presidente confirma que recibió un pago.
+- **Inventario y deudas:** cualquier miembro con sesión activa puede añadir productos. Cada alta y reposición queda en la actividad del inventario con el nombre de quien la hizo, cantidad, precio y fecha. El presidente conserva el control de reposiciones y retiradas; las cuentas de invitados se identifican con nombre y apellidos, y el presidente confirma los pagos.
 - **Bote:** suma solo pagos confirmados. Los miembros pueden registrar compras y el presidente puede aprobarlas o rechazarlas; un gasto aprobado solo se descuenta si hay saldo suficiente.
 - **Miembros:** el presidente puede retirar el acceso sin borrar el historial.
 - **Archivo multimedia:** los archivos añadidos se guardan en el almacenamiento local del navegador que los subió, no en Neon. El despliegue hace que la sección esté disponible desde Vercel, pero esos archivos no se comparten entre dispositivos ni se respaldan allí.

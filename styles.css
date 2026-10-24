@@ -81,8 +81,14 @@ input::placeholder { color: #777a84; }
 .fund-summary span, .fund-summary small { color: var(--muted); font-size: 10px; }
 .fund-summary strong { color: var(--accent); font-size: 19px; }
 .product-form { display: grid; grid-template-columns: 1.4fr .7fr 1fr auto; align-items: end; gap: 11px; margin-bottom: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-.product-form h3 { grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.product-form h3, .product-form p { grid-column: 1 / -1; margin: 0; }
+.product-form h3 { font-size: 13px; }
+.product-form p { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .product-list, .debt-list, .member-list { display: grid; gap: 10px; }
+.inventory-activity-section { margin-top: 25px; }
+.inventory-activity-list { display: grid; gap: 8px; }
+.inventory-activity-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 11px; }
+.inventory-activity-details { color: var(--muted); text-align: right; }
 .expense-list { display: grid; gap: 10px; }
 .product-card, .debt-card, .member-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
 .expense-card { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
@@ -171,8 +177,11 @@ input::placeholder { color: #777a84; }
   .auth-forms { grid-template-columns: 1fr; }
   .product-form { grid-template-columns: 1fr 1fr; }
   .product-form h3 { grid-column: 1 / -1; }
+  .product-form p { grid-column: 1 / -1; }
   .product-form button { grid-column: 1 / -1; }
   .product-card, .debt-card, .member-row { align-items: flex-start; }
+  .inventory-activity-row { flex-direction: column; }
+  .inventory-activity-details { text-align: left; }
   .product-card { flex-direction: column; }
   .product-actions { width: 100%; justify-content: flex-start; }
   .library-tools { align-items: stretch; flex-direction: column; }

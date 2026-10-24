@@ -101,10 +101,24 @@ class LocalApiTest(unittest.TestCase):
         self.assertEqual(status, 201, created)
         product_id = created["product"]["id"]
 
-        status, _ = self.request(
+        status, added_product = self.request(
             "/api/products",
             "POST",
             {"name": "Agua", "stock": 5, "priceCents": 100},
+            member_opener,
+        )
+        self.assertEqual(status, 201, added_product)
+        self.assertEqual(added_product["product"]["stock"], 5)
+        activity = self.request("/api/inventory-events", opener=member_opener)[1]["events"]
+        member_addition = next(event for event in activity if event["productId"] == added_product["product"]["id"])
+        self.assertEqual(member_addition["actorId"], member["id"])
+        self.assertEqual(member_addition["actorName"], "Socio Txoko")
+        self.assertEqual(member_addition["action"], "product_added")
+        self.assertEqual(member_addition["quantity"], 5)
+        status, _ = self.request(
+            "/api/stock",
+            "POST",
+            {"productId": product_id, "amount": 1},
             member_opener,
         )
         self.assertEqual(status, 403)
@@ -119,7 +133,12 @@ class LocalApiTest(unittest.TestCase):
         )
         self.assertEqual(status, 201, consumption)
         guest_id = server.guest_key("Ana", "Invitada")
-        self.assertEqual(self.request("/api/products")[1]["products"][0]["stock"], 1)
+        coke = next(
+            product
+            for product in self.request("/api/products")[1]["products"]
+            if product["id"] == product_id
+        )
+        self.assertEqual(coke["stock"], 1)
         self.assertEqual(self.request("/api/ledger")[1]["pendingCents"], 150)
 
         debts = self.request(f"/api/guest-debts?guestId={guest_id}")[1]["debts"]
@@ -145,6 +164,20 @@ class LocalApiTest(unittest.TestCase):
         self.assertEqual(ledger["totalSalesCents"], 150)
         self.assertEqual(ledger["pendingCents"], 0)
         self.assertEqual(ledger["collectedCents"], 150)
+        status, _ = self.request(
+            "/api/stock",
+            "POST",
+            {"productId": product_id, "amount": 3},
+            president_opener,
+        )
+        self.assertEqual(status, 200)
+        restock = next(
+            event
+            for event in self.request("/api/inventory-events", opener=president_opener)[1]["events"]
+            if event["action"] == "stock_added"
+        )
+        self.assertEqual(restock["actorId"], president["id"])
+        self.assertEqual(restock["quantity"], 3)
 
     def test_first_account_requires_setup_token_and_login_session_persists(self):
         status, _ = self.request(
