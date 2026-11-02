@@ -20,7 +20,7 @@ El plan gratuito, los límites y la disponibilidad de Neon y Vercel pueden cambi
    - `TXOKO_SETUP_TOKEN`: un secreto aleatorio para el primer registro de presidente. Puedes generar uno con `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 3. Incluye las variables en el entorno **Production** y vuelve a desplegar si las agregas después de la primera publicación.
 
-`pyproject.toml` señala explícitamente `app.py` como entrada FastAPI para que Vercel no confunda el servidor local `server.py` con la aplicación desplegada. `requirements.txt` instala las dependencias. La función sirve la web y la API; el backend elige PostgreSQL cuando encuentra `DATABASE_URL`. En Vercel no se debe usar SQLite como base compartida.
+`pyproject.toml` señala explícitamente `app.py` como entrada FastAPI para que Vercel no confunda el servidor local `server.py` con la aplicación desplegada, y declara las dependencias que necesita la función. `requirements.txt` mantiene esas dependencias para el desarrollo y las pruebas locales. La función sirve la web y la API; el backend elige PostgreSQL cuando encuentra `DATABASE_URL`. En Vercel no se debe usar SQLite como base compartida.
 
 Abre el dominio que Vercel asigna, selecciona **Acceder / registrarse → Crear cuenta** y usa el valor de `TXOKO_SETUP_TOKEN` como token inicial. La primera cuenta será el presidente. Tras crearla, puedes eliminar `TXOKO_SETUP_TOKEN` de la configuración de Vercel y volver a desplegar; la base conservará el rol y ya no necesitará ese secreto.
 
