@@ -22,6 +22,21 @@ class RecordingPostgresConnection:
         return self.calls[-1]
 
 
+class RecordingConnectionContext:
+    def __init__(self):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exception_type, exception, traceback):
+        return None
+
+    def execute(self, query, parameters=()):
+        self.calls.append((query, parameters))
+        return self.calls[-1]
+
+
 class LocalApiTest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -283,6 +298,20 @@ class LocalApiTest(unittest.TestCase):
                 ("SELECT name FROM products ORDER BY LOWER(name)", ()),
             ],
         )
+
+    def test_postgres_schema_initialization_uses_transaction_advisory_lock(self):
+        connection = RecordingConnectionContext()
+        store = object.__new__(server.TxokoStore)
+        store.is_postgres = True
+        store.connect = lambda: connection
+
+        store._initialize_database()
+
+        self.assertEqual(
+            connection.calls[0],
+            ("SELECT pg_advisory_xact_lock(1415071563, 1)", ()),
+        )
+        self.assertIn("CREATE TABLE IF NOT EXISTS users", connection.calls[1][0])
 
     def test_cleaning_groups_confirm_annual_rotation_and_rule_review(self):
         president, president_opener = self.register("presidente", self.setup_token)

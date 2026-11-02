@@ -372,6 +372,7 @@ class TxokoStore:
                 );
             """
             with self.connect() as connection:
+                connection.execute("SELECT pg_advisory_xact_lock(1415071563, 1)")
                 for statement in schema.split(";"):
                     if statement.strip():
                         connection.execute(statement)
