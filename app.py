@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import urllib.parse
+from datetime import date
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
@@ -165,6 +166,17 @@ async def api_router(request: Request, api_path: str) -> JSONResponse:
             return json_response({
                 "events": store.list_inventory_events(session_user(store, request, required=True))
             })
+        if path == "/cleaning":
+            raw_year = request.query_params.get("year", str(date.today().year))
+            try:
+                year = int(raw_year)
+            except ValueError as error:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "El año del calendario no es válido.") from error
+            return json_response({
+                "cleaning": store.list_cleaning(session_user(store, request, required=True), year)
+            })
+        if path == "/rules":
+            return json_response({"rules": store.list_rules(session_user(store, request, required=True))})
         if path == "/ledger":
             with store.connect() as connection:
                 return json_response(money_summary(connection))
@@ -229,6 +241,25 @@ async def api_router(request: Request, api_path: str) -> JSONResponse:
     if path == "/expenses":
         expense = store.create_expense(session_user(store, request, required=True), payload)
         return json_response({"expense": expense}, HTTPStatus.CREATED)
+    if path == "/cleaning-groups":
+        group = store.create_cleaning_group(session_user(store, request, required=True), payload)
+        return json_response({"group": group}, HTTPStatus.CREATED)
+    if path == "/confirm-cleaning-groups":
+        count = store.confirm_cleaning_groups(
+            session_user(store, request, required=True),
+            payload.get("year"),
+        )
+        return json_response({"ok": True, "weekends": count})
+    if path == "/rules":
+        proposal = store.create_rule_proposal(session_user(store, request, required=True), payload)
+        return json_response({"rule": proposal}, HTTPStatus.CREATED)
+    if path == "/review-rule":
+        store.review_rule_proposal(
+            session_user(store, request, required=True),
+            payload.get("ruleId"),
+            payload.get("approved"),
+        )
+        return json_response({"ok": True})
     if path == "/approve-expense":
         store.review_expense(
             session_user(store, request, required=True),

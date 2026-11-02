@@ -73,7 +73,9 @@ h1, h2, h3, p { margin-top: 0; }
 
 label { display: grid; gap: 7px; color: #c9cbd2; font-size: 11px; }
 input, select { width: 100%; min-height: 40px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px; background: #13151b; color: #f4f4f5; font-size: 12px; }
+textarea { width: 100%; min-height: 88px; padding: 11px; border: 1px solid var(--border); border-radius: 8px; background: #13151b; color: #f4f4f5; font: inherit; font-size: 12px; resize: vertical; }
 input::placeholder { color: #777a84; }
+textarea::placeholder { color: #777a84; }
 
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .section-heading h2 { margin: 0; font-size: 25px; letter-spacing: -1px; }
@@ -121,6 +123,31 @@ input::placeholder { color: #777a84; }
 .status-badge.is-rejected { color: var(--danger); }
 .section-help, .muted-copy { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .member-row strong { display: block; font-size: 13px; }
+.year-picker { min-width: 105px; }
+.cleaning-controls { display: flex; flex-wrap: wrap; gap: 9px; margin: 15px 0; }
+.cleaning-group-form, .rule-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 12px; margin: 15px 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.cleaning-group-form h3, .cleaning-group-form p { grid-column: 1 / -1; margin: 0; }
+.cleaning-group-form h3 { font-size: 13px; }
+.cleaning-group-form p { color: var(--muted); font-size: 11px; }
+.cleaning-groups-list, .rules-list { display: grid; gap: 10px; margin-top: 16px; }
+.cleaning-group-card, .rule-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.cleaning-group-card h3 { margin: 0; font-size: 13px; }
+.group-created-by { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.cleaning-calendar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.cleaning-month { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.cleaning-month h3 { margin: 0 0 10px; font-size: 13px; text-transform: capitalize; }
+.cleaning-weekends { display: grid; gap: 7px; }
+.cleaning-week { display: grid; gap: 3px; padding: 9px; border-radius: 8px; background: #20232a; }
+.cleaning-week strong { color: var(--accent); font-size: 11px; }
+.cleaning-week-range { color: var(--muted); font-size: 10px; }
+.rule-form { grid-template-columns: 1fr auto; }
+.rule-form label { grid-column: 1; }
+.rule-form button { grid-column: 2; }
+.rule-card { align-items: flex-start; }
+.rule-content { min-width: 0; }
+.rule-text { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rule-actions { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.rule-actions .button { min-height: 34px; padding: 0 10px; font-size: 10px; }
 
 .empty-state { padding: 52px 15px; color: var(--muted); text-align: center; }
 .empty-state.compact { padding: 38px 15px; }
@@ -173,6 +200,7 @@ input::placeholder { color: #777a84; }
 
 @media (max-width: 720px) {
   .app-shell { width: min(100% - 30px, 560px); }
+  .cleaning-calendar { grid-template-columns: 1fr; }
   .welcome-row { padding-top: 30px; }
   .auth-forms { grid-template-columns: 1fr; }
   .product-form { grid-template-columns: 1fr 1fr; }
@@ -204,6 +232,13 @@ input::placeholder { color: #777a84; }
   .member-row .button { width: 100%; }
   .expense-form { grid-template-columns: 1fr; }
   .expense-form h3, .expense-form p { grid-column: auto; }
+  .cleaning-group-form { grid-template-columns: 1fr; }
+  .cleaning-group-form h3, .cleaning-group-form p { grid-column: auto; }
+  .cleaning-calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cleaning-group-card, .rule-card { align-items: flex-start; flex-direction: column; }
+  .rule-form { grid-template-columns: 1fr; }
+  .rule-form label, .rule-form button { grid-column: 1; }
+  .rule-actions { justify-content: flex-start; }
   .upload-panel { align-items: flex-start; flex-wrap: wrap; }
   .upload-copy { flex: 1 1 calc(100% - 60px); }
   .file-picker { width: 100%; }

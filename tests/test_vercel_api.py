@@ -1,6 +1,7 @@
 import asyncio
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 try:
@@ -71,6 +72,59 @@ class VercelApiTest(unittest.TestCase):
                     },
                 )
                 self.assertEqual(joined.status_code, 201, joined.text)
+                year = date.today().year
+                cleaning_group = await member.post(
+                    "/api/cleaning-groups",
+                    json={
+                        "year": year,
+                        "name": "Turno Verde",
+                        "memberIds": [
+                            registered.json()["user"]["id"],
+                            joined.json()["user"]["id"],
+                        ],
+                    },
+                )
+                self.assertEqual(cleaning_group.status_code, 201, cleaning_group.text)
+                self.assertEqual(
+                    (
+                        await member.post(
+                            "/api/confirm-cleaning-groups",
+                            json={"year": year},
+                        )
+                    ).status_code,
+                    403,
+                )
+                confirmation = await president.post(
+                    "/api/confirm-cleaning-groups",
+                    json={"year": year},
+                )
+                self.assertEqual(confirmation.status_code, 200, confirmation.text)
+                cleaning = await member.get(f"/api/cleaning?year={year}")
+                self.assertTrue(cleaning.json()["cleaning"]["confirmed"])
+                self.assertGreaterEqual(len(cleaning.json()["cleaning"]["schedule"]), 52)
+
+                proposal = await member.post(
+                    "/api/rules",
+                    json={"text": "Dejar limpio el espacio después de usarlo."},
+                )
+                self.assertEqual(proposal.status_code, 201, proposal.text)
+                self.assertEqual(
+                    (
+                        await member.post(
+                            "/api/review-rule",
+                            json={"ruleId": proposal.json()["rule"]["id"], "approved": True},
+                        )
+                    ).status_code,
+                    403,
+                )
+                reviewed_rule = await president.post(
+                    "/api/review-rule",
+                    json={"ruleId": proposal.json()["rule"]["id"], "approved": True},
+                )
+                self.assertEqual(reviewed_rule.status_code, 200, reviewed_rule.text)
+                visible_rules = await member.get("/api/rules")
+                self.assertEqual(visible_rules.json()["rules"][0]["status"], "approved")
+
                 member_product = await member.post(
                     "/api/products",
                     json={"name": "Agua", "stock": 6, "priceCents": 100},

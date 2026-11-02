@@ -284,6 +284,113 @@ class LocalApiTest(unittest.TestCase):
             ],
         )
 
+    def test_cleaning_groups_confirm_annual_rotation_and_rule_review(self):
+        president, president_opener = self.register("presidente", self.setup_token)
+        first_member, first_member_opener = self.register("socio1")
+        second_member, _ = self.register("socio2")
+        third_member, _ = self.register("socio3")
+        year = server.date.today().year
+
+        status, _ = self.request(
+            "/api/cleaning-groups",
+            "POST",
+            {"year": year, "name": "Grupo Grande", "memberIds": [
+                president["id"], first_member["id"], second_member["id"], third_member["id"],
+            ]},
+            first_member_opener,
+        )
+        self.assertEqual(status, 400)
+        status, first_group = self.request(
+            "/api/cleaning-groups",
+            "POST",
+            {"year": year, "name": "Grupo A", "memberIds": [
+                president["id"], first_member["id"], second_member["id"],
+            ]},
+            first_member_opener,
+        )
+        self.assertEqual(status, 201, first_group)
+        status, _ = self.request(
+            "/api/cleaning-groups",
+            "POST",
+            {"year": year, "name": "Grupo B", "memberIds": [
+                first_member["id"], third_member["id"],
+            ]},
+            first_member_opener,
+        )
+        self.assertEqual(status, 409)
+        status, second_group = self.request(
+            "/api/cleaning-groups",
+            "POST",
+            {"year": year, "name": "Grupo B", "memberIds": [third_member["id"]]},
+            first_member_opener,
+        )
+        self.assertEqual(status, 201, second_group)
+
+        status, groups = self.request(f"/api/cleaning?year={year}", opener=first_member_opener)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(groups["cleaning"]["groups"]), 2)
+        status, _ = self.request(
+            "/api/confirm-cleaning-groups",
+            "POST",
+            {"year": year},
+            first_member_opener,
+        )
+        self.assertEqual(status, 403)
+        status, confirmed = self.request(
+            "/api/confirm-cleaning-groups",
+            "POST",
+            {"year": year},
+            president_opener,
+        )
+        self.assertEqual(status, 200, confirmed)
+        saturday_count = sum(
+            1
+            for day in range(1, (server.date(year + 1, 1, 1) - server.date(year, 1, 1)).days + 1)
+            if (server.date(year, 1, 1) + server.timedelta(days=day - 1)).weekday() == 5
+        )
+        self.assertEqual(confirmed["weekends"], saturday_count)
+
+        cleaning = self.request(f"/api/cleaning?year={year}", opener=president_opener)[1]["cleaning"]
+        self.assertTrue(cleaning["confirmed"])
+        self.assertEqual(len(cleaning["schedule"]), saturday_count)
+        assignments = [week["groupName"] for week in cleaning["schedule"]]
+        self.assertEqual(set(assignments), {"Grupo A", "Grupo B"})
+        self.assertLessEqual(abs(assignments.count("Grupo A") - assignments.count("Grupo B")), 1)
+        status, _ = self.request(
+            "/api/cleaning-groups",
+            "POST",
+            {"year": year, "name": "Tarde", "memberIds": [third_member["id"]]},
+            first_member_opener,
+        )
+        self.assertEqual(status, 409)
+
+        status, proposal = self.request(
+            "/api/rules",
+            "POST",
+            {"text": "Dejar limpia la encimera después de usarla."},
+            first_member_opener,
+        )
+        self.assertEqual(status, 201, proposal)
+        proposal_id = proposal["rule"]["id"]
+        status, _ = self.request(
+            "/api/review-rule",
+            "POST",
+            {"ruleId": proposal_id, "approved": True},
+            first_member_opener,
+        )
+        self.assertEqual(status, 403)
+        status, _ = self.request(
+            "/api/review-rule",
+            "POST",
+            {"ruleId": proposal_id, "approved": True},
+            president_opener,
+        )
+        self.assertEqual(status, 200)
+        rules = self.request("/api/rules", opener=first_member_opener)[1]["rules"]
+        self.assertEqual(rules[0]["status"], "approved")
+        self.assertEqual(rules[0]["authorId"], first_member["id"])
+        self.assertEqual(rules[0]["reviewerId"], president["id"])
+
     def test_pot_only_counts_confirmed_income_and_presidentially_approved_expenses(self):
         _, president_opener = self.register("presidente", self.setup_token)
         member, member_opener = self.register("socio")

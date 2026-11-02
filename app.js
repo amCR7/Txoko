@@ -120,6 +120,11 @@ function setUser(user) {
   signOutButton.hidden = !user;
   $("#role-badge").hidden = user?.role !== "president";
   $("#members-tab").hidden = user?.role !== "president";
+  $("#cleaning-controls").hidden = !user || user.role === "former_member";
+  $("#cleaning-group-form").hidden = true;
+  $("#cleaning-login-hint").hidden = Boolean(user);
+  $("#rule-form").hidden = !user || user.role === "former_member";
+  $("#rules-login-hint").hidden = Boolean(user);
   $("#product-form").hidden = !user || user.role === "former_member";
   $("#inventory-activity-section").hidden = !user || user.role === "former_member";
   $("#guest-debt-form").hidden = Boolean(user);
@@ -130,6 +135,11 @@ function setUser(user) {
     $("#inventory-activity-empty").hidden = true;
     $("#expenses-list").replaceChildren();
     $("#expenses-empty").hidden = true;
+    $("#cleaning-groups-list").replaceChildren();
+    $("#cleaning-calendar").replaceChildren();
+    $("#cleaning-calendar").hidden = true;
+    $("#rules-list").replaceChildren();
+    $("#rules-empty").hidden = true;
   }
   appContent.hidden = false;
   refreshData();
@@ -145,6 +155,8 @@ async function refreshData() {
     products = inventory.products;
     renderProducts();
     if (currentUser && !$("#inventory-section").hidden) await loadInventoryEvents();
+    if (currentUser && !$("#cleaning-section").hidden) await loadCleaning();
+    if (currentUser && !$("#rules-section").hidden) await loadRules();
     $("#funds-total").textContent = formatMoney(ledger.totalSalesCents);
     $("#funds-detail").textContent = `Pendiente: ${formatMoney(ledger.pendingCents)} · Cobrado: ${formatMoney(ledger.collectedCents)}`;
     $("#pot-balance").textContent = formatMoney(ledger.potBalanceCents);
@@ -185,6 +197,156 @@ function renderInventoryEvents(events) {
     );
     list.append(row);
   });
+}
+
+function selectedCleaningYear() {
+  return Number($("#cleaning-year").value);
+}
+
+async function loadCleaning() {
+  const year = selectedCleaningYear();
+  if (!Number.isInteger(year)) return;
+  try {
+    const result = await api(`/api/cleaning?year=${year}`);
+    renderCleaning(result.cleaning);
+  } catch (error) {
+    showNotice(`No se pudo cargar el calendario de limpieza: ${displayError(error)}`, true);
+  }
+}
+
+function renderCleaning(cleaning) {
+  const groupList = $("#cleaning-groups-list");
+  groupList.replaceChildren();
+  $("#cleaning-groups-empty").hidden = cleaning.groups.length > 0;
+  const confirmed = cleaning.confirmed;
+  $("#toggle-cleaning-form").hidden = confirmed;
+  $("#confirm-cleaning-groups").hidden = confirmed || currentUser?.role !== "president";
+  $("#confirm-cleaning-groups").disabled = cleaning.groups.length === 0;
+  $("#cleaning-group-form").hidden = true;
+  $("#cleaning-confirmation").hidden = !confirmed;
+  $("#cleaning-confirmation").textContent = confirmed
+    ? `Calendario ${cleaning.year} confirmado por ${cleaning.confirmedBy}. Los grupos de este año ya están cerrados.`
+    : "Los grupos se pueden modificar hasta que el presidente confirme el calendario.";
+
+  const memberSelects = [...$("#cleaning-group-form").querySelectorAll('select[name^="member"]')];
+  memberSelects.forEach((select, index) => {
+    const placeholder = index === 0 ? "Selecciona integrante" : "Sin integrante";
+    select.replaceChildren(new Option(placeholder, ""));
+    cleaning.members.forEach((member) => {
+      select.add(new Option(`${member.firstName} ${member.lastName}`, member.id));
+    });
+  });
+
+  cleaning.groups.forEach((group) => {
+    const card = document.createElement("article");
+    card.className = "cleaning-group-card";
+    const names = group.members.map((member) => member.name).join(", ");
+    card.append(
+      safeText("h3", "", group.name),
+      safeText("p", "debt-description", names || "Sin integrantes"),
+      safeText("p", "group-created-by", `Creado por ${group.createdName}`),
+    );
+    groupList.append(card);
+  });
+
+  const calendar = $("#cleaning-calendar");
+  calendar.replaceChildren();
+  calendar.hidden = !confirmed;
+  if (!confirmed) return;
+  const monthSections = new Map();
+  cleaning.schedule.forEach((assignment) => {
+    const cleaningDate = new Date(`${assignment.cleaningDate}T12:00:00`);
+    const monthKey = `${cleaningDate.getFullYear()}-${cleaningDate.getMonth()}`;
+    if (!monthSections.has(monthKey)) {
+      const month = document.createElement("section");
+      month.className = "cleaning-month";
+      month.append(safeText(
+        "h3",
+        "",
+        new Intl.DateTimeFormat("es-ES", { month: "long" }).format(cleaningDate),
+      ));
+      const weekends = document.createElement("div");
+      weekends.className = "cleaning-weekends";
+      month.append(weekends);
+      monthSections.set(monthKey, weekends);
+      calendar.append(month);
+    }
+    const week = document.createElement("article");
+    week.className = "cleaning-week";
+    const range = `Del ${new Date(`${assignment.weekStart}T12:00:00`).toLocaleDateString("es-ES")} al ${new Date(`${assignment.weekEnd}T12:00:00`).toLocaleDateString("es-ES")}`;
+    week.append(
+      safeText("span", "cleaning-week-range", range),
+      safeText("strong", "", assignment.groupName),
+    );
+    monthSections.get(monthKey).append(week);
+  });
+}
+
+function renderRules(rules) {
+  const list = $("#rules-list");
+  list.replaceChildren();
+  $("#rules-empty").hidden = rules.length > 0;
+  rules.forEach((rule) => {
+    const card = document.createElement("article");
+    card.className = "rule-card";
+    const content = document.createElement("div");
+    content.className = "rule-content";
+    const statusLabels = {
+      pending: "Pendiente de revisión",
+      approved: "Regla aprobada",
+      rejected: "Rechazada",
+    };
+    content.append(
+      safeText("p", "rule-text", rule.text),
+      safeText("p", "debt-description", `Propuesta por ${rule.authorName} · ${new Date(rule.createdAt * 1000).toLocaleString("es-ES")}`),
+    );
+    if (rule.reviewerName) {
+      content.append(safeText("p", "group-created-by", `${statusLabels[rule.status]} por ${rule.reviewerName}`));
+    }
+    const actions = document.createElement("div");
+    actions.className = "rule-actions";
+    if (rule.status === "pending" && currentUser?.role === "president") {
+      const approve = safeText("button", "button button-primary", "Aprobar");
+      approve.type = "button";
+      approve.addEventListener("click", () => reviewRule(rule, true));
+      const reject = safeText("button", "button button-danger", "Rechazar");
+      reject.type = "button";
+      reject.addEventListener("click", () => reviewRule(rule, false));
+      actions.append(approve, reject);
+    } else {
+      actions.append(safeText(
+        "span",
+        `status-badge ${rule.status === "approved" ? "is-approved" : rule.status === "rejected" ? "is-rejected" : "is-pending"}`,
+        statusLabels[rule.status],
+      ));
+    }
+    card.append(content, actions);
+    list.append(card);
+  });
+}
+
+async function loadRules() {
+  try {
+    const result = await api("/api/rules");
+    renderRules(result.rules);
+  } catch (error) {
+    showNotice(`No se pudieron cargar las reglas: ${displayError(error)}`, true);
+  }
+}
+
+async function reviewRule(rule, approved) {
+  const action = approved ? "aprobar" : "rechazar";
+  if (!window.confirm(`¿Quieres ${action} esta propuesta de regla?`)) return;
+  try {
+    await api("/api/review-rule", {
+      method: "POST",
+      body: { ruleId: rule.id, approved },
+    });
+    showNotice(approved ? "Regla aprobada." : "Propuesta rechazada.");
+    await loadRules();
+  } catch (error) {
+    showNotice(`No se pudo ${action} la propuesta: ${displayError(error)}`, true);
+  }
 }
 
 function renderProducts() {
@@ -613,12 +775,97 @@ function setupEvents() {
     }
   });
 
+  const cleaningYearSelect = $("#cleaning-year");
+  const currentYear = new Date().getFullYear();
+  for (let year = currentYear; year <= currentYear + 5; year += 1) {
+    cleaningYearSelect.add(new Option(String(year), String(year)));
+  }
+  cleaningYearSelect.addEventListener("change", loadCleaning);
+
+  $("#toggle-cleaning-form").addEventListener("click", () => {
+    const form = $("#cleaning-group-form");
+    form.hidden = !form.hidden;
+    if (!form.hidden) form.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
+  $("#cleaning-group-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const name = formElement.elements.name.value.trim();
+    const memberIds = ["member1", "member2", "member3"]
+      .map((field) => formElement.elements[field].value)
+      .filter(Boolean);
+    if (!name || memberIds.length < 1 || memberIds.length > 3 || new Set(memberIds).size !== memberIds.length) {
+      showNotice("Indica un nombre y entre uno y tres integrantes distintos.", true);
+      return;
+    }
+    const button = formElement.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await api("/api/cleaning-groups", {
+        method: "POST",
+        body: { year: selectedCleaningYear(), name, memberIds },
+      });
+      formElement.reset();
+      formElement.hidden = true;
+      showNotice("Grupo guardado para el calendario.");
+      await loadCleaning();
+    } catch (error) {
+      showNotice(`No se pudo guardar el grupo: ${displayError(error)}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("#confirm-cleaning-groups").addEventListener("click", async () => {
+    const year = selectedCleaningYear();
+    if (!window.confirm(`¿Confirmas los grupos y generas el calendario completo de limpieza de ${year}? Después no se podrán modificar.`)) return;
+    const button = $("#confirm-cleaning-groups");
+    button.disabled = true;
+    try {
+      const result = await api("/api/confirm-cleaning-groups", {
+        method: "POST",
+        body: { year },
+      });
+      showNotice(`Calendario confirmado: ${result.weekends} semanas asignadas.`);
+      await loadCleaning();
+    } catch (error) {
+      showNotice(`No se pudo confirmar el calendario: ${displayError(error)}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("#rule-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const text = formElement.elements.text.value.trim();
+    if (!text) {
+      showNotice("Escribe la propuesta de regla.", true);
+      return;
+    }
+    const button = formElement.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await api("/api/rules", { method: "POST", body: { text } });
+      formElement.reset();
+      showNotice("Propuesta enviada al presidente para su revisión.");
+      await loadRules();
+    } catch (error) {
+      showNotice(`No se pudo enviar la propuesta: ${displayError(error)}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.addEventListener("click", () => {
       showTab(button.dataset.tab);
       if (button.dataset.tab === "members" && currentUser?.role === "president") loadMembers();
       if (button.dataset.tab === "inventory" && currentUser) loadInventoryEvents();
       if (button.dataset.tab === "pot" && currentUser) loadExpenses();
+      if (button.dataset.tab === "cleaning" && currentUser) loadCleaning();
+      if (button.dataset.tab === "rules" && currentUser) loadRules();
     });
   });
 

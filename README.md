@@ -59,6 +59,8 @@ La base de datos que use el modo local no se sincroniza automáticamente con Neo
 
 - **Inventario y deudas:** cualquier miembro con sesión activa puede añadir productos. Cada alta y reposición queda en la actividad del inventario con el nombre de quien la hizo, cantidad, precio y fecha. El presidente conserva el control de reposiciones y retiradas; las cuentas de invitados se identifican con nombre y apellidos, y el presidente confirma los pagos.
 - **Bote:** suma solo pagos confirmados. Los miembros pueden registrar compras y el presidente puede aprobarlas o rechazarlas; un gasto aprobado solo se descuenta si hay saldo suficiente.
+- **Limpieza:** los miembros pueden crear grupos de hasta tres cuentas activas. Al confirmar el presidente los grupos de un año, se asignan las semanas de lunes a domingo rotando alfabéticamente por nombre de grupo y queda generado el calendario con todos los sábados de limpieza del año. Los grupos de ese año quedan cerrados tras la confirmación.
+- **Reglas:** los miembros pueden proponer reglas; las propuestas quedan pendientes hasta que el presidente las aprueba o rechaza. El estado y quién revisó cada propuesta quedan visibles.
 - **Miembros:** el presidente puede retirar el acceso sin borrar el historial.
 - **Archivo multimedia:** los archivos añadidos se guardan en el almacenamiento local del navegador que los subió, no en Neon. El despliegue hace que la sección esté disponible desde Vercel, pero esos archivos no se comparten entre dispositivos ni se respaldan allí.
 - **Acceso:** las cuentas usan nombre, apellidos, usuario y PIN de 6 a 12 cifras. El PIN se almacena como hash con sal. Las sesiones usan cookies `HttpOnly`, `SameSite=Strict` y caducan a los 30 días.

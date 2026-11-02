@@ -7,7 +7,7 @@
     <meta name="description" content="Inventario, cuentas, bote y archivo multimedia de Txoko.">
     <title>Txoko · Inventario</title>
     <link rel="stylesheet" href="styles.css">
-    <script type="module" src="app.js?v=inventory-audit"></script>
+    <script type="module" src="app.js?v=cleaning-rules"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -64,6 +64,8 @@
           <button class="tab-button is-active" type="button" data-tab="inventory" aria-selected="true">Inventario</button>
           <button class="tab-button" type="button" data-tab="debts" aria-selected="false">Deudas</button>
           <button class="tab-button" type="button" data-tab="pot" aria-selected="false">Bote</button>
+          <button class="tab-button" type="button" data-tab="cleaning" aria-selected="false">Limpieza</button>
+          <button class="tab-button" type="button" data-tab="rules" aria-selected="false">Reglas</button>
           <button class="tab-button" type="button" data-tab="media" aria-selected="false">Archivo multimedia</button>
           <button id="members-tab" class="tab-button" type="button" data-tab="members" aria-selected="false" hidden>Miembros</button>
         </nav>
@@ -164,6 +166,61 @@
             <p>Los gastos enviados aparecerán aquí para su revisión.</p>
           </div>
           <p id="expenses-login-hint" class="section-help" hidden>Inicia sesión para registrar compras o consultar su historial.</p>
+        </section>
+
+        <section id="cleaning-section" class="tab-panel" aria-labelledby="cleaning-title" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ORGANIZACIÓN DEL TXOKO</p>
+              <h2 id="cleaning-title">Grupos de limpieza</h2>
+            </div>
+            <label class="year-picker">Año
+              <select id="cleaning-year"></select>
+            </label>
+          </div>
+          <p class="section-help">Cada grupo se encarga de la limpieza durante una semana, de lunes a domingo. Los turnos rotan por orden de creación de los grupos.</p>
+          <div id="cleaning-controls" class="cleaning-controls" hidden>
+            <button id="toggle-cleaning-form" class="button button-secondary" type="button">Añadir grupo</button>
+            <button id="confirm-cleaning-groups" class="button button-primary" type="button" hidden>Confirmar grupos y generar calendario</button>
+          </div>
+          <form id="cleaning-group-form" class="cleaning-group-form" hidden>
+            <h3>Nuevo grupo</h3>
+            <label>Nombre del grupo<input name="name" placeholder="Grupo 1" maxlength="60" required></label>
+            <label>Integrante 1<select name="member1" required><option value="">Selecciona integrante</option></select></label>
+            <label>Integrante 2 (opcional)<select name="member2"><option value="">Sin segundo integrante</option></select></label>
+            <label>Integrante 3 (opcional)<select name="member3"><option value="">Sin tercer integrante</option></select></label>
+            <p>Máximo 3 integrantes. Una persona solo puede estar en un grupo por año.</p>
+            <button class="button button-primary" type="submit">Guardar grupo</button>
+          </form>
+          <div id="cleaning-confirmation" class="section-help" hidden></div>
+          <div id="cleaning-groups-list" class="cleaning-groups-list"></div>
+          <div id="cleaning-groups-empty" class="empty-state compact" hidden>
+            <div class="empty-symbol" aria-hidden="true">✳</div>
+            <h3>Aún no hay grupos</h3>
+            <p>Añade grupos con sus integrantes para preparar los turnos del año.</p>
+          </div>
+          <div id="cleaning-calendar" class="cleaning-calendar" hidden></div>
+          <p id="cleaning-login-hint" class="section-help" hidden>Inicia sesión para crear grupos y consultar el calendario.</p>
+        </section>
+
+        <section id="rules-section" class="tab-panel" aria-labelledby="rules-title" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ACUERDOS DEL TXOKO</p>
+              <h2 id="rules-title">Reglas</h2>
+            </div>
+          </div>
+          <form id="rule-form" class="rule-form" hidden>
+            <label>Propón una regla<textarea name="text" rows="3" maxlength="500" placeholder="Escribe una propuesta clara..." required></textarea></label>
+            <button class="button button-primary" type="submit">Enviar propuesta</button>
+          </form>
+          <p id="rules-login-hint" class="section-help" hidden>Inicia sesión para proponer reglas y consultar las propuestas.</p>
+          <div id="rules-list" class="rules-list"></div>
+          <div id="rules-empty" class="empty-state compact" hidden>
+            <div class="empty-symbol" aria-hidden="true">✳</div>
+            <h3>Aún no hay propuestas</h3>
+            <p>Las propuestas de reglas aparecerán aquí para su revisión.</p>
+          </div>
         </section>
 
         <section id="members-section" class="tab-panel" aria-labelledby="members-title" hidden>

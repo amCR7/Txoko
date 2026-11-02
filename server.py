@@ -16,6 +16,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from datetime import date, timedelta
 import unicodedata
 import urllib.parse
 from functools import partial
@@ -277,6 +278,54 @@ class TxokoStore:
                 );
                 CREATE INDEX IF NOT EXISTS inventory_events_created
                   ON inventory_events(created_at);
+                CREATE TABLE IF NOT EXISTS cleaning_years (
+                  year INTEGER PRIMARY KEY,
+                  confirmed_by TEXT NOT NULL,
+                  confirmed_name TEXT NOT NULL,
+                  confirmed_at BIGINT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS cleaning_groups (
+                  id TEXT PRIMARY KEY,
+                  year INTEGER NOT NULL,
+                  name TEXT NOT NULL,
+                  name_key TEXT NOT NULL,
+                  created_by TEXT NOT NULL,
+                  created_name TEXT NOT NULL,
+                  created_at BIGINT NOT NULL,
+                  UNIQUE (year, name_key)
+                );
+                CREATE INDEX IF NOT EXISTS cleaning_groups_year
+                  ON cleaning_groups(year, created_at, id);
+                CREATE TABLE IF NOT EXISTS cleaning_group_members (
+                  group_id TEXT NOT NULL REFERENCES cleaning_groups(id),
+                  year INTEGER NOT NULL,
+                  user_id TEXT NOT NULL,
+                  member_name TEXT NOT NULL,
+                  PRIMARY KEY (group_id, user_id),
+                  UNIQUE (year, user_id)
+                );
+                CREATE TABLE IF NOT EXISTS cleaning_schedule (
+                  cleaning_date TEXT PRIMARY KEY,
+                  year INTEGER NOT NULL REFERENCES cleaning_years(year),
+                  week_number INTEGER NOT NULL,
+                  week_start TEXT NOT NULL,
+                  week_end TEXT NOT NULL,
+                  group_id TEXT NOT NULL REFERENCES cleaning_groups(id),
+                  UNIQUE (year, week_number)
+                );
+                CREATE TABLE IF NOT EXISTS rule_proposals (
+                  id TEXT PRIMARY KEY,
+                  text TEXT NOT NULL,
+                  author_id TEXT NOT NULL,
+                  author_name TEXT NOT NULL,
+                  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+                  created_at BIGINT NOT NULL,
+                  reviewed_by TEXT,
+                  reviewer_name TEXT,
+                  reviewed_at BIGINT
+                );
+                CREATE INDEX IF NOT EXISTS rule_proposals_status_created
+                  ON rule_proposals(status, created_at);
                 CREATE TABLE IF NOT EXISTS guests (
                   id TEXT PRIMARY KEY,
                   first_name TEXT NOT NULL,
@@ -371,6 +420,54 @@ class TxokoStore:
                 );
                 CREATE INDEX IF NOT EXISTS inventory_events_created
                   ON inventory_events(created_at);
+                CREATE TABLE IF NOT EXISTS cleaning_years (
+                  year INTEGER PRIMARY KEY,
+                  confirmed_by TEXT NOT NULL,
+                  confirmed_name TEXT NOT NULL,
+                  confirmed_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS cleaning_groups (
+                  id TEXT PRIMARY KEY,
+                  year INTEGER NOT NULL,
+                  name TEXT NOT NULL,
+                  name_key TEXT NOT NULL,
+                  created_by TEXT NOT NULL,
+                  created_name TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  UNIQUE (year, name_key)
+                );
+                CREATE INDEX IF NOT EXISTS cleaning_groups_year
+                  ON cleaning_groups(year, created_at, id);
+                CREATE TABLE IF NOT EXISTS cleaning_group_members (
+                  group_id TEXT NOT NULL REFERENCES cleaning_groups(id),
+                  year INTEGER NOT NULL,
+                  user_id TEXT NOT NULL,
+                  member_name TEXT NOT NULL,
+                  PRIMARY KEY (group_id, user_id),
+                  UNIQUE (year, user_id)
+                );
+                CREATE TABLE IF NOT EXISTS cleaning_schedule (
+                  cleaning_date TEXT PRIMARY KEY,
+                  year INTEGER NOT NULL REFERENCES cleaning_years(year),
+                  week_number INTEGER NOT NULL,
+                  week_start TEXT NOT NULL,
+                  week_end TEXT NOT NULL,
+                  group_id TEXT NOT NULL REFERENCES cleaning_groups(id),
+                  UNIQUE (year, week_number)
+                );
+                CREATE TABLE IF NOT EXISTS rule_proposals (
+                  id TEXT PRIMARY KEY,
+                  text TEXT NOT NULL,
+                  author_id TEXT NOT NULL,
+                  author_name TEXT NOT NULL,
+                  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+                  created_at INTEGER NOT NULL,
+                  reviewed_by TEXT,
+                  reviewer_name TEXT,
+                  reviewed_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS rule_proposals_status_created
+                  ON rule_proposals(status, created_at);
                 CREATE TABLE IF NOT EXISTS guests (
                   id TEXT PRIMARY KEY,
                   first_name TEXT NOT NULL,
@@ -923,6 +1020,310 @@ class TxokoStore:
         return [public_user(row) for row in rows]
 
     @staticmethod
+    def cleaning_year(value: Any) -> int:
+        if type(value) is not int or not 2000 <= value <= 2100:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "El año del calendario no es válido.")
+        return value
+
+    def list_cleaning(self, user: sqlite3.Row | None, year: Any) -> dict[str, Any]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión para consultar los grupos de limpieza.")
+        year = self.cleaning_year(year)
+        with self.connect() as connection:
+            groups = connection.execute(
+                """
+                SELECT id, year, name, created_by, created_name, created_at
+                FROM cleaning_groups WHERE year = ?
+                ORDER BY name_key, id
+                """,
+                (year,),
+            ).fetchall()
+            members = connection.execute(
+                """
+                SELECT group_id, user_id, member_name
+                FROM cleaning_group_members WHERE year = ?
+                ORDER BY member_name
+                """,
+                (year,),
+            ).fetchall()
+            schedule = connection.execute(
+                """
+                SELECT cleaning_date, week_number, week_start, week_end, group_id
+                FROM cleaning_schedule WHERE year = ?
+                ORDER BY cleaning_date
+                """,
+                (year,),
+            ).fetchall()
+            confirmation = connection.execute(
+                "SELECT confirmed_by, confirmed_name, confirmed_at FROM cleaning_years WHERE year = ?",
+                (year,),
+            ).fetchone()
+            available_members = connection.execute(
+                """
+                SELECT id, username, first_name, last_name, role, active
+                FROM users WHERE active = 1 AND role != 'former_member'
+                ORDER BY first_name, last_name
+                """
+            ).fetchall()
+        members_by_group: dict[str, list[dict[str, str]]] = {}
+        for member in members:
+            members_by_group.setdefault(member["group_id"], []).append(
+                {"id": member["user_id"], "name": member["member_name"]}
+            )
+        groups_result = [
+            {
+                "id": group["id"],
+                "year": group["year"],
+                "name": group["name"],
+                "createdBy": group["created_by"],
+                "createdName": group["created_name"],
+                "createdAt": group["created_at"],
+                "members": members_by_group.get(group["id"], []),
+            }
+            for group in groups
+        ]
+        return {
+            "year": year,
+            "confirmed": confirmation is not None,
+            "confirmedBy": confirmation["confirmed_name"] if confirmation else None,
+            "confirmedAt": confirmation["confirmed_at"] if confirmation else None,
+            "groups": groups_result,
+            "schedule": [
+                {
+                    "cleaningDate": row["cleaning_date"],
+                    "weekNumber": row["week_number"],
+                    "weekStart": row["week_start"],
+                    "weekEnd": row["week_end"],
+                    "groupId": row["group_id"],
+                    "groupName": next(
+                        (group["name"] for group in groups_result if group["id"] == row["group_id"]),
+                        "Grupo",
+                    ),
+                }
+                for row in schedule
+            ],
+            "members": [public_user(row) for row in available_members],
+        }
+
+    def create_cleaning_group(self, user: sqlite3.Row | None, payload: dict[str, Any]) -> dict[str, Any]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión con una cuenta activa para crear un grupo.")
+        year = self.cleaning_year(payload.get("year"))
+        if year < date.today().year or year > date.today().year + 5:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Solo puedes preparar grupos para este año o los próximos cinco.")
+        name = clean_name(payload.get("name"), "Nombre del grupo", 60)
+        member_ids = payload.get("memberIds")
+        if (
+            not isinstance(member_ids, list)
+            or not 1 <= len(member_ids) <= 3
+            or any(not isinstance(member_id, str) or not re.fullmatch(r"[a-f0-9]{32}", member_id) for member_id in member_ids)
+            or len(set(member_ids)) != len(member_ids)
+        ):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "El grupo debe tener entre uno y tres integrantes distintos.")
+
+        group_id = secrets.token_hex(16)
+        now = utc_now()
+        placeholders = ", ".join("?" for _ in member_ids)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if self.is_postgres:
+                connection.execute("SELECT pg_advisory_xact_lock(?)", (70_200_000 + year,))
+            if connection.execute("SELECT 1 FROM cleaning_years WHERE year = ?", (year,)).fetchone():
+                raise ApiError(HTTPStatus.CONFLICT, "Los grupos de ese año ya están confirmados.")
+            if connection.execute(
+                "SELECT 1 FROM cleaning_groups WHERE year = ? AND name_key = ?",
+                (year, normalize_name(name)),
+            ).fetchone():
+                raise ApiError(HTTPStatus.CONFLICT, "Ya existe un grupo con ese nombre para ese año.")
+            members = connection.execute(
+                f"""
+                SELECT id, first_name, last_name FROM users
+                WHERE active = 1 AND role != 'former_member' AND id IN ({placeholders})
+                """,
+                tuple(member_ids),
+            ).fetchall()
+            if len(members) != len(member_ids):
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Selecciona integrantes con cuentas activas.")
+            if connection.execute(
+                f"""
+                SELECT 1 FROM cleaning_group_members
+                WHERE year = ? AND user_id IN ({placeholders})
+                LIMIT 1
+                """,
+                (year, *member_ids),
+            ).fetchone():
+                raise ApiError(HTTPStatus.CONFLICT, "Cada integrante solo puede pertenecer a un grupo por año.")
+            connection.execute(
+                """
+                INSERT INTO cleaning_groups(id, year, name, name_key, created_by, created_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    group_id,
+                    year,
+                    name,
+                    normalize_name(name),
+                    user["id"],
+                    f"{user['first_name']} {user['last_name']}",
+                    now,
+                ),
+            )
+            for member in members:
+                connection.execute(
+                    """
+                    INSERT INTO cleaning_group_members(group_id, year, user_id, member_name)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        group_id,
+                        year,
+                        member["id"],
+                        f"{member['first_name']} {member['last_name']}",
+                    ),
+                )
+            connection.commit()
+        return {
+            "id": group_id,
+            "year": year,
+            "name": name,
+            "createdBy": user["id"],
+            "createdName": f"{user['first_name']} {user['last_name']}",
+            "createdAt": now,
+            "members": [
+                {"id": member["id"], "name": f"{member['first_name']} {member['last_name']}"}
+                for member in members
+            ],
+        }
+
+    def confirm_cleaning_groups(self, user: sqlite3.Row | None, year_value: Any) -> int:
+        self.require_president(user)
+        year = self.cleaning_year(year_value)
+        if year < date.today().year or year > date.today().year + 5:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Solo puedes confirmar este año o los próximos cinco.")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if self.is_postgres:
+                connection.execute("SELECT pg_advisory_xact_lock(?)", (70_200_000 + year,))
+            if connection.execute("SELECT 1 FROM cleaning_years WHERE year = ?", (year,)).fetchone():
+                raise ApiError(HTTPStatus.CONFLICT, "Los grupos de ese año ya están confirmados.")
+            groups = connection.execute(
+                "SELECT id, name FROM cleaning_groups WHERE year = ? ORDER BY name_key, id",
+                (year,),
+            ).fetchall()
+            if not groups:
+                raise ApiError(HTTPStatus.CONFLICT, "Añade al menos un grupo antes de confirmar el calendario.")
+            confirmed_at = utc_now()
+            connection.execute(
+                "INSERT INTO cleaning_years(year, confirmed_by, confirmed_name, confirmed_at) VALUES (?, ?, ?, ?)",
+                (year, user["id"], f"{user['first_name']} {user['last_name']}", confirmed_at),
+            )
+            saturday = date(year, 1, 1)
+            while saturday.weekday() != 5:
+                saturday += timedelta(days=1)
+            slot = 0
+            while saturday.year == year:
+                monday = saturday - timedelta(days=5)
+                sunday = saturday + timedelta(days=1)
+                group = groups[slot % len(groups)]
+                connection.execute(
+                    """
+                    INSERT INTO cleaning_schedule(
+                      cleaning_date, year, week_number, week_start, week_end, group_id
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        saturday.isoformat(),
+                        year,
+                        slot + 1,
+                        monday.isoformat(),
+                        sunday.isoformat(),
+                        group["id"],
+                    ),
+                )
+                saturday += timedelta(days=7)
+                slot += 1
+            connection.commit()
+        return slot
+
+    def list_rules(self, user: sqlite3.Row | None) -> list[dict[str, Any]]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión para consultar las propuestas de reglas.")
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM rule_proposals
+                ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+                         created_at DESC
+                """
+            ).fetchall()
+        return [self.public_rule(row) for row in rows]
+
+    @staticmethod
+    def public_rule(row: Any) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "text": row["text"],
+            "authorId": row["author_id"],
+            "authorName": row["author_name"],
+            "status": row["status"],
+            "createdAt": row["created_at"],
+            "reviewerId": row["reviewed_by"],
+            "reviewerName": row["reviewer_name"],
+            "reviewedAt": row["reviewed_at"],
+        }
+
+    def create_rule_proposal(self, user: sqlite3.Row | None, payload: dict[str, Any]) -> dict[str, Any]:
+        if user is None or not user["active"] or user["role"] == "former_member":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Inicia sesión con una cuenta activa para proponer una regla.")
+        text = clean_name(payload.get("text"), "Propuesta", 500)
+        proposal_id = secrets.token_hex(16)
+        created_at = utc_now()
+        author_name = f"{user['first_name']} {user['last_name']}"
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO rule_proposals(id, text, author_id, author_name, status, created_at)
+                VALUES (?, ?, ?, ?, 'pending', ?)
+                """,
+                (proposal_id, text, user["id"], author_name, created_at),
+            )
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM rule_proposals WHERE id = ?", (proposal_id,)).fetchone()
+        return self.public_rule(row)
+
+    def review_rule_proposal(self, user: sqlite3.Row | None, proposal_id: Any, approved: Any) -> None:
+        self.require_president(user)
+        if type(approved) is not bool:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "La decisión de revisión no es válida.")
+        if not isinstance(proposal_id, str) or not re.fullmatch(r"[a-f0-9]{32}", proposal_id):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "La propuesta no es válida.")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            proposal = connection.execute(
+                "SELECT * FROM rule_proposals WHERE id = ?" + (" FOR UPDATE" if self.is_postgres else ""),
+                (proposal_id,),
+            ).fetchone()
+            if proposal is None:
+                raise ApiError(HTTPStatus.NOT_FOUND, "No se encuentra esa propuesta.")
+            if proposal["status"] != "pending":
+                raise ApiError(HTTPStatus.CONFLICT, "Esta propuesta ya ha sido revisada.")
+            connection.execute(
+                """
+                UPDATE rule_proposals
+                SET status = ?, reviewed_by = ?, reviewer_name = ?, reviewed_at = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (
+                    "approved" if approved else "rejected",
+                    user["id"],
+                    f"{user['first_name']} {user['last_name']}",
+                    utc_now(),
+                    proposal_id,
+                ),
+            )
+            connection.commit()
+
+    @staticmethod
     def public_expense(row: sqlite3.Row) -> dict[str, Any]:
         result = {
             "id": row["id"],
@@ -1143,6 +1544,16 @@ class TxokoHandler(SimpleHTTPRequestHandler):
                 self._send_json({
                     "events": self.store.list_inventory_events(self._user(required=True))
                 })
+            elif parsed.path == "/api/cleaning":
+                try:
+                    year = int(query.get("year", [str(date.today().year)])[0])
+                except ValueError as error:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "El año del calendario no es válido.") from error
+                self._send_json({
+                    "cleaning": self.store.list_cleaning(self._user(required=True), year)
+                })
+            elif parsed.path == "/api/rules":
+                self._send_json({"rules": self.store.list_rules(self._user(required=True))})
             elif parsed.path == "/api/ledger":
                 with self.store.connect() as connection:
                     self._send_json(money_summary(connection))
@@ -1216,6 +1627,25 @@ class TxokoHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/expenses":
                 expense = self.store.create_expense(self._user(required=True), payload)
                 self._send_json({"expense": expense}, HTTPStatus.CREATED)
+            elif parsed.path == "/api/cleaning-groups":
+                group = self.store.create_cleaning_group(self._user(required=True), payload)
+                self._send_json({"group": group}, HTTPStatus.CREATED)
+            elif parsed.path == "/api/confirm-cleaning-groups":
+                count = self.store.confirm_cleaning_groups(
+                    self._user(required=True),
+                    payload.get("year"),
+                )
+                self._send_json({"ok": True, "weekends": count})
+            elif parsed.path == "/api/rules":
+                rule = self.store.create_rule_proposal(self._user(required=True), payload)
+                self._send_json({"rule": rule}, HTTPStatus.CREATED)
+            elif parsed.path == "/api/review-rule":
+                self.store.review_rule_proposal(
+                    self._user(required=True),
+                    payload.get("ruleId"),
+                    payload.get("approved"),
+                )
+                self._send_json({"ok": True})
             elif parsed.path == "/api/approve-expense":
                 self.store.review_expense(self._user(required=True), payload.get("expenseId"), approved=True)
                 self._send_json({"ok": True})

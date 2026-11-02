@@ -17,6 +17,11 @@ TABLES = (
     "sessions",
     "products",
     "inventory_events",
+    "cleaning_years",
+    "cleaning_groups",
+    "cleaning_group_members",
+    "cleaning_schedule",
+    "rule_proposals",
     "guests",
     "transactions",
     "expenses",
@@ -40,7 +45,16 @@ def migrate(source_path: Path) -> None:
             for row in source.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
         missing_tables = set(TABLES) - source_tables
-        if missing_tables - {"expenses", "inventory_events"}:
+        optional_tables = {
+            "expenses",
+            "inventory_events",
+            "cleaning_years",
+            "cleaning_groups",
+            "cleaning_group_members",
+            "cleaning_schedule",
+            "rule_proposals",
+        }
+        if missing_tables - optional_tables:
             raise RuntimeError(f"La base SQLite no contiene estas tablas: {', '.join(sorted(missing_tables))}")
         counts = {
             table: source.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] if table in source_tables else 0
